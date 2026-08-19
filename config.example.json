@@ -1,0 +1,9 @@
+{
+  "save_dir": "%LOCALAPPDATA%\\Duskfade\\Saved\\SaveGames",
+  "slot_pattern": "DFSlot_*.sav",
+  "library_dir": "Library",
+  "backups_dir": "Backups",
+  "poll_seconds": 2,
+  "last_target_slot": null,
+  "pinned_target_slot": null
+}

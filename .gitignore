@@ -1,0 +1,32 @@
+# Local runtime state -- machine-specific paths, save data, backups
+config.json
+capture_state.json
+library_names.json
+Library/
+Backups/
+
+# Old/superseded LiveSplit tooling, not part of the public toolset
+Duskfade.asl
+Duskfade.lss
+duskfadelayout.lsl
+splits.json
+autosplitter.py
+run_autosplitter.bat
+
+# Packaged-release-specific readme (superseded by README.md for the source repo)
+README.txt
+
+# Cosmetics/save-editing code, held back for now
+Disabled Features/
+
+# Packaged build output (ship via GitHub Releases, not source control)
+Duskfade Save Loader/
+_update_download.exe
+*_update.exe
+_apply_update.bat
+build/
+dist/
+*.spec
+
+__pycache__/
+*.pyc
