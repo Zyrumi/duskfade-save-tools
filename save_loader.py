@@ -27,6 +27,7 @@ from angled_button import AngledButton
 import cosmetic_names
 import cosmetics
 import gvas_lite
+import shards
 import tool_config
 import unlocks
 import updater
@@ -458,6 +459,9 @@ class LoaderApp(tk.Tk):
         AngledButton(bar, "Outfit", command=self._open_cosmetics, width=90, height=32).pack(
             side="left", padx=(8, 0)
         )
+        AngledButton(bar, "Shards", command=self._open_shards, width=90, height=32).pack(
+            side="left", padx=(8, 0)
+        )
         AngledButton(
             bar, "Load Selected Save", style="primary", command=self._load_selected, width=170, height=32
         ).pack(side="right")
@@ -583,6 +587,17 @@ class LoaderApp(tk.Tk):
             )
             return
         CosmeticsDialog(self, active)
+
+    def _open_shards(self):
+        active = self._active_slot_path()
+        if active is None:
+            return
+        if not active.exists():
+            messagebox.showinfo(
+                "No save yet", f"{active.name} doesn't exist yet -- reach the first in-game checkpoint first."
+            )
+            return
+        ShardsDialog(self, active)
 
     def _active_slot_path(self) -> Path | None:
         slot = self.slot_var.get()
@@ -895,6 +910,85 @@ class CosmeticsDialog(tk.Toplevel):
         }
         try:
             cosmetics.apply_cosmetic_values(self.active_path, values)
+        except Exception as exc:
+            messagebox.showerror("Couldn't apply", f"Failed to write changes:\n{exc}")
+            return
+        self.destroy()
+        messagebox.showinfo(
+            "Applied",
+            f"Updated {self.active_path.name}. Your previous save was backed up automatically.\n\n"
+            "Retry/reload in-game to pick it up (walking between zones won't).",
+        )
+
+
+class ShardsDialog(tk.Toplevel):
+    """Set the exact shard (currency) count on the active save directly."""
+
+    def __init__(self, parent: LoaderApp, active_path: Path):
+        super().__init__(parent, bg=DUSK)
+        self.active_path = active_path
+        self.title("Shards")
+        self.resizable(False, False)
+        self.transient(parent)
+
+        current = shards.read_shards(active_path)
+
+        body = tk.Frame(self, bg=DUSK, padx=20, pady=16)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="Shards", bg=DUSK, fg=AMBER, font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        tk.Label(
+            body,
+            text=f"Set the exact shard count on your active save.\nApplies to {active_path.name}.",
+            bg=DUSK,
+            fg=INK_DIM,
+            font=("Segoe UI", 9),
+            justify="left",
+        ).pack(anchor="w", pady=(4, 14))
+
+        row = tk.Frame(body, bg=DUSK)
+        row.pack(fill="x")
+        tk.Label(row, text="Shards", bg=DUSK, fg=TEAL, font=("Segoe UI", 9, "bold"), width=14, anchor="w").pack(
+            side="left"
+        )
+        self.shards_var = tk.StringVar(value=str(current))
+        entry = ttk.Entry(row, textvariable=self.shards_var, width=24)
+        entry.pack(side="left")
+        entry.focus_set()
+        entry.select_range(0, "end")
+
+        tk.Frame(body, bg=EDGE, height=1).pack(fill="x", pady=(14, 12))
+
+        btn_row = tk.Frame(body, bg=DUSK)
+        btn_row.pack(fill="x")
+        AngledButton(btn_row, "Cancel", command=self.destroy, width=90, height=28, bg=DUSK).pack(side="right")
+        AngledButton(btn_row, "Apply", style="primary", command=self._apply, width=100, height=28, bg=DUSK).pack(
+            side="right", padx=(0, 8)
+        )
+
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.bind("<Return>", lambda _e: self._apply())
+
+        self.update_idletasks()
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        dw, dh = self.winfo_width(), self.winfo_height()
+        self.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+        self.grab_set()
+
+    def _apply(self):
+        raw = self.shards_var.get().strip()
+        try:
+            value = int(raw)
+        except ValueError:
+            messagebox.showerror("Invalid value", "Shards must be a whole number.")
+            return
+        if value < 0 or value > 2_147_483_647:
+            messagebox.showerror("Invalid value", "Shards must be between 0 and 2,147,483,647.")
+            return
+        try:
+            shards.apply_shards(self.active_path, value)
         except Exception as exc:
             messagebox.showerror("Couldn't apply", f"Failed to write changes:\n{exc}")
             return

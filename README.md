@@ -31,8 +31,9 @@ A browsable list of every save in your library, plus:
 - **Launch Duskfade** — starts the game straight from Steam, no need to alt-tab out.
 - **Unlocks** — toggle any ability, gadget, or upgrade tier on your active save directly, no need to earn it in-game first.
 - **Outfit** — force any outfit, outfit color, or sword skin color on your active save, owned or not.
+- **Shards** — set the exact shard (currency) count on your active save.
 
-Both **Unlocks** and **Outfit** changes apply the same way: back up automatically, write to your active slot, then pick up in-game on your next **Retry** or **Continue from menu** (walking between zones in a continuous session won't refresh them).
+**Unlocks**, **Outfit**, and **Shards** changes all apply the same way: back up automatically, write to your active slot, then pick up in-game on your next **Retry** or **Continue from menu** (walking between zones in a continuous session won't refresh them).
 
 Run via `run_save_loader.bat`, or `python save_loader.py`.
 
