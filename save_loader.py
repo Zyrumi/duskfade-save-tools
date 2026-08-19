@@ -209,11 +209,12 @@ class LoaderApp(tk.Tk):
         self.geometry("900x560")
         self.minsize(720, 420)
         try:
-            self.iconbitmap(str(tool_config.HERE / "duskfade.ico"))
+            self.iconbitmap(str(tool_config.resource_path("duskfade.ico")))
         except Exception:
             pass  # missing/unsupported icon shouldn't block the app from starting
 
         self.cfg = tool_config.load_config()
+        tool_config.ensure_seed_library(self.cfg)
         self.entries: list[Entry] = []
 
         self._apply_theme()

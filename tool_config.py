@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -69,3 +70,32 @@ def captures_dir(cfg: dict) -> Path:
     slot doesn't matter for practice purposes, so it's not part of the
     on-disk layout."""
     return Path(cfg["library_dir"])
+
+
+def resource_path(name: str) -> Path:
+    """A bundled asset (icon, seed library) -- prefers a real file sitting
+    next to the exe/script (so it can be swapped without rebuilding), and
+    falls back to whatever PyInstaller embedded inside the exe itself
+    (sys._MEIPASS) so a bare exe downloaded on its own still has everything
+    it needs, not just the zip release."""
+    local = HERE / name
+    if local.exists():
+        return local
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass) / name
+    return local
+
+
+def ensure_seed_library(cfg: dict) -> None:
+    """First run of a bare exe download: if there's no library on disk yet,
+    copy out whatever PyInstaller embedded as a starter set. A no-op once a
+    real library exists (never overwrites), and a no-op entirely for a dev
+    checkout / an exe built without a bundled seed."""
+    lib_dir = Path(cfg["library_dir"])
+    if lib_dir.exists() and any(lib_dir.iterdir()):
+        return
+    seed = resource_path("Library")
+    if seed == lib_dir or not seed.exists():
+        return
+    shutil.copytree(seed, lib_dir, dirs_exist_ok=True)
