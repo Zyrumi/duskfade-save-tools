@@ -12,6 +12,7 @@ Run via run_save_loader.bat, or `python save_loader.py`.
 """
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import shutil
@@ -28,6 +29,33 @@ import tool_config
 import updater
 
 STEAM_APP_ID = "2542020"
+
+# Win32 constants for stripping the native title bar. Removing just
+# WS_CAPTION (not using Tkinter's overrideredirect, which also drops the
+# window from the taskbar/Alt-Tab and famously breaks .iconify() on Windows)
+# keeps this a perfectly normal top-level window under the hood -- taskbar
+# presence, Alt-Tab, edge-drag resizing (WS_THICKFRAME is untouched), and
+# .iconify()/.geometry() all keep working exactly as before. Only the
+# caption -- and the native min/max/close box drawn inside it -- disappears,
+# which is why this app draws its own strip for those instead.
+_GWL_STYLE = -16
+_WS_CAPTION = 0x00C00000
+_SWP_FRAMECHANGED = 0x0020
+_SWP_NOMOVE = 0x0002
+_SWP_NOSIZE = 0x0001
+_SWP_NOZORDER = 0x0004
+_SPI_GETWORKAREA = 0x0030
+
+
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+
+def _work_area() -> tuple[int, int, int, int]:
+    """Screen bounds excluding the taskbar, for maximize -- (x, y, w, h)."""
+    rect = _RECT()
+    ctypes.windll.user32.SystemParametersInfoW(_SPI_GETWORKAREA, 0, ctypes.byref(rect), 0)
+    return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
 
 # Same palette as the Duskfade speedrun hub website, so the whole tooling
 # suite reads as one thing rather than a bare-Tkinter afterthought.
@@ -212,11 +240,15 @@ class LoaderApp(tk.Tk):
             self.iconbitmap(str(tool_config.HERE / "duskfade.ico"))
         except Exception:
             pass  # missing/unsupported icon shouldn't block the app from starting
+        self._strip_titlebar()
+        self._is_maximized = False
+        self._restore_geometry = self.geometry()
 
         self.cfg = tool_config.load_config()
         self.entries: list[Entry] = []
 
         self._apply_theme()
+        self._build_titlebar()
         self._build_banner()
         self._build_top_bar()
         self._build_table()
@@ -339,6 +371,63 @@ class LoaderApp(tk.Tk):
             relief="flat",
         )
 
+    def _strip_titlebar(self):
+        self.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+        style = ctypes.windll.user32.GetWindowLongW(hwnd, _GWL_STYLE)
+        ctypes.windll.user32.SetWindowLongW(hwnd, _GWL_STYLE, style & ~_WS_CAPTION)
+        ctypes.windll.user32.SetWindowPos(
+            hwnd, 0, 0, 0, 0, 0, _SWP_FRAMECHANGED | _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOZORDER
+        )
+
+    def _build_titlebar(self):
+        strip = tk.Frame(self, bg="#120e1a", height=28)
+        strip.pack(fill="x")
+        strip.pack_propagate(False)
+        strip.bind("<ButtonPress-1>", self._start_move)
+        strip.bind("<B1-Motion>", self._do_move)
+        strip.bind("<Double-Button-1>", lambda e: self._toggle_maximize())
+
+        controls = tk.Frame(strip, bg="#120e1a")
+        controls.pack(side="right")
+        for symbol, handler, hover in (
+            ("─", self._minimize, EDGE),
+            ("▢", self._toggle_maximize, EDGE),
+            ("✕", self._close, "#c0405a"),
+        ):
+            lbl = tk.Label(
+                controls, text=symbol, bg="#120e1a", fg=INK_MID, font=("Segoe UI", 9), width=4, cursor="hand2"
+            )
+            lbl.pack(side="left", fill="y")
+            lbl.bind("<Button-1>", lambda e, h=handler: h())
+            lbl.bind("<Enter>", lambda e, w=lbl, c=hover: w.configure(bg=c, fg=INK))
+            lbl.bind("<Leave>", lambda e, w=lbl: w.configure(bg="#120e1a", fg=INK_MID))
+
+    def _start_move(self, event):
+        self._drag_offset = (event.x, event.y)
+
+    def _do_move(self, event):
+        if self._is_maximized:
+            return
+        x, y = self._drag_offset
+        self.geometry(f"+{self.winfo_pointerx() - x}+{self.winfo_pointery() - y}")
+
+    def _minimize(self):
+        self.iconify()
+
+    def _toggle_maximize(self):
+        if self._is_maximized:
+            self.geometry(self._restore_geometry)
+            self._is_maximized = False
+        else:
+            self._restore_geometry = self.geometry()
+            x, y, w, h = _work_area()
+            self.geometry(f"{w}x{h}+{x}+{y}")
+            self._is_maximized = True
+
+    def _close(self):
+        self.destroy()
+
     def _build_banner(self):
         banner = tk.Frame(self, bg=DUSK)
         banner.pack(fill="x")
@@ -444,13 +533,15 @@ class LoaderApp(tk.Tk):
     def _build_bottom_bar(self):
         bar = ttk.Frame(self, padding=12)
         bar.pack(fill="x")
-        AngledButton(bar, "Launch Duskfade", command=self._launch_game, width=140, height=32).pack(side="left")
-        AngledButton(bar, "Rename", command=self._rename_selected, width=90, height=32).pack(
-            side="left", padx=(6, 0)
+        AngledButton(bar, "Rename checkpoint", command=self._rename_selected, width=170, height=32).pack(
+            side="left"
         )
         AngledButton(
             bar, "Load Selected Save", style="primary", command=self._load_selected, width=170, height=32
         ).pack(side="right")
+        AngledButton(bar, "Launch Duskfade", command=self._launch_game, width=140, height=32).pack(
+            side="right", padx=(0, 8)
+        )
 
     # ---------- data ----------
 
