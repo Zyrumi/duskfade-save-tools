@@ -451,10 +451,10 @@ class LoaderApp(tk.Tk):
         AngledButton(bar, "Rename checkpoint", command=self._rename_selected, width=170, height=32).pack(
             side="left"
         )
-        AngledButton(bar, "Unlocks...", command=self._open_unlocks, width=110, height=32).pack(
+        AngledButton(bar, "Unlocks", command=self._open_unlocks, width=100, height=32).pack(
             side="left", padx=(8, 0)
         )
-        AngledButton(bar, "Outfit...", command=self._open_cosmetics, width=100, height=32).pack(
+        AngledButton(bar, "Outfit", command=self._open_cosmetics, width=90, height=32).pack(
             side="left", padx=(8, 0)
         )
         AngledButton(
@@ -835,9 +835,9 @@ class CosmeticsDialog(tk.Toplevel):
             justify="left",
         ).pack(anchor="w", pady=(4, 14))
 
-        self.outfit_combo = self._build_row(body, "Outfit", self._rename_outfit)
-        self.outfit_color_combo = self._build_row(body, "Outfit Color", self._rename_outfit_color)
-        self.weapon_color_combo = self._build_row(body, "Sword Skin Color", self._rename_weapon_color)
+        self.outfit_combo = self._build_row(body, "Outfit")
+        self.outfit_color_combo = self._build_row(body, "Outfit Color")
+        self.weapon_color_combo = self._build_row(body, "Sword Skin Color")
 
         self.outfit_combo["values"] = [cosmetic_names.outfit_label(i) for i in range(cosmetic_names.outfit_count())]
         self.outfit_combo.current(self.outfit_index)
@@ -868,15 +868,14 @@ class CosmeticsDialog(tk.Toplevel):
         self.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
         self.grab_set()
 
-    def _build_row(self, parent, label_text: str, rename_command) -> ttk.Combobox:
+    def _build_row(self, parent, label_text: str) -> ttk.Combobox:
         row = tk.Frame(parent, bg=DUSK)
         row.pack(fill="x", pady=(0, 10))
         tk.Label(row, text=label_text, bg=DUSK, fg=TEAL, font=("Segoe UI", 9, "bold"), width=14, anchor="w").pack(
             side="left"
         )
         combo = ttk.Combobox(row, state="readonly", width=22)
-        combo.pack(side="left", padx=(0, 8))
-        AngledButton(row, "Rename", command=rename_command, width=80, height=26, bg=DUSK).pack(side="left")
+        combo.pack(side="left")
         return combo
 
     def _refresh_outfit_color_combo(self, select: int):
@@ -886,50 +885,6 @@ class CosmeticsDialog(tk.Toplevel):
             cosmetic_names.outfit_color_label(outfit_index, i) for i in range(count)
         ]
         self.outfit_color_combo.current(min(select, count - 1))
-
-    def _rename_outfit(self):
-        i = self.outfit_combo.current()
-        if i < 0:
-            return
-        new_label = simpledialog.askstring("Rename outfit", "Display name:", initialvalue=self.outfit_combo.get())
-        if not new_label:
-            return
-        cosmetic_names.rename_outfit(i, new_label)
-        values = list(self.outfit_combo["values"])
-        values[i] = new_label
-        self.outfit_combo["values"] = values
-        self.outfit_combo.current(i)
-
-    def _rename_outfit_color(self):
-        outfit_index = self.outfit_combo.current()
-        i = self.outfit_color_combo.current()
-        if i < 0:
-            return
-        new_label = simpledialog.askstring(
-            "Rename color", "Display name:", initialvalue=self.outfit_color_combo.get()
-        )
-        if not new_label:
-            return
-        cosmetic_names.rename_outfit_color(outfit_index, i, new_label)
-        values = list(self.outfit_color_combo["values"])
-        values[i] = new_label
-        self.outfit_color_combo["values"] = values
-        self.outfit_color_combo.current(i)
-
-    def _rename_weapon_color(self):
-        i = self.weapon_color_combo.current()
-        if i < 0:
-            return
-        new_label = simpledialog.askstring(
-            "Rename weapon color", "Display name:", initialvalue=self.weapon_color_combo.get()
-        )
-        if not new_label:
-            return
-        cosmetic_names.rename_weapon_color(i, new_label)
-        values = list(self.weapon_color_combo["values"])
-        values[i] = new_label
-        self.weapon_color_combo["values"] = values
-        self.weapon_color_combo.current(i)
 
     def _apply(self):
         values = {

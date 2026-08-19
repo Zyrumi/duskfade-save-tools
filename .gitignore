@@ -2,7 +2,6 @@
 config.json
 capture_state.json
 library_names.json
-cosmetic_name_overrides.json
 Library/
 Backups/
 
