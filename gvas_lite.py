@@ -123,6 +123,73 @@ def find_scalar_value_offset(strings: list[Str], data: bytes, name: str, expecte
     return _locate_scalar_value(data, hit.offset, len(hit.text), expected_type, byte_size)
 
 
+def _locate_bool_array_values(data: bytes, name_offset: int, name_text_len: int) -> tuple[int, int] | None:
+    """Validates an ArrayProperty-of-BoolProperty tag right after a name
+    string. Confirmed byte layout (reverse-engineered from real Duskfade
+    saves, e.g. Habilidades/Gadgets/UpHabilidades/UpGadgets/UpMinutero/
+    UpCuco -- fixed-size toggle lists like unlocked abilities/gadgets):
+
+        Type="ArrayProperty"  (FString)
+        <4 bytes, always 1 in every sample seen -- unidentified, treated
+         as an opaque constant, not validated>
+        InnerType="BoolProperty"  (FString)
+        ArrayIndex (int32, always 0)
+        Length (int32 -- byte size of Count+data, i.e. Count+4)
+        terminator (1 byte, 0x00)
+        Count (int32 -- number of bool elements)
+        <Count raw bytes, one per element, 0x00/0x01>
+
+    Returns (count, offset_of_first_bool_byte), or None if the tag doesn't
+    match this exact shape."""
+    try:
+        pos = name_offset + name_text_len + 1
+        type_len = struct.unpack_from("<i", data, pos)[0]
+        pos += 4
+        if type_len <= 0 or type_len > 60:
+            return None
+        type_text = data[pos : pos + type_len - 1].decode("ascii")
+        pos += type_len
+        if type_text != "ArrayProperty":
+            return None
+        pos += 4  # unidentified constant field, always 1 so far
+        inner_len = struct.unpack_from("<i", data, pos)[0]
+        pos += 4
+        if inner_len <= 0 or inner_len > 60:
+            return None
+        inner_text = data[pos : pos + inner_len - 1].decode("ascii")
+        pos += inner_len
+        if inner_text != "BoolProperty":
+            return None
+        array_index = struct.unpack_from("<i", data, pos)[0]
+        pos += 4
+        length = struct.unpack_from("<i", data, pos)[0]
+        pos += 4
+        terminator = data[pos]
+        pos += 1
+        count = struct.unpack_from("<i", data, pos)[0]
+        pos += 4
+        if array_index != 0 or terminator != 0 or count < 0 or count > 200 or length != count + 4:
+            return None
+        return count, pos
+    except Exception:
+        return None
+
+
+def find_bool_array(strings: list[Str], data: bytes, name: str) -> tuple[int, int, list[bool]] | None:
+    """Returns (count, offset_of_first_bool_byte, values) for an existing
+    ArrayProperty-of-BoolProperty, or None if the property isn't present in
+    this save at all (UE only serializes properties that differ from class
+    default, so a fully-locked save is simply missing it)."""
+    hit = next((s for s in strings if s.text == name), None)
+    if hit is None:
+        return None
+    located = _locate_bool_array_values(data, hit.offset, len(hit.text))
+    if located is None:
+        return None
+    count, offset = located
+    return count, offset, [b != 0 for b in data[offset : offset + count]]
+
+
 def write_fstring(s: str) -> bytes:
     text = s.encode("ascii") + b"\x00"
     return struct.pack("<i", len(text)) + text
@@ -137,6 +204,22 @@ def write_int_property(name: str, value: int) -> bytes:
     out += struct.pack("<I", 4)  # Length -- 4 bytes for an int32
     out += b"\x00"  # terminator
     out += struct.pack("<i", value)
+    return out
+
+
+def write_bool_array_property(name: str, values: list[bool]) -> bytes:
+    """A fresh top-level ArrayProperty-of-BoolProperty entry, matching the
+    exact shape _locate_bool_array_values expects to read back."""
+    count = len(values)
+    out = write_fstring(name)
+    out += write_fstring("ArrayProperty")
+    out += struct.pack("<I", 1)  # unidentified constant, matches every real sample
+    out += write_fstring("BoolProperty")
+    out += struct.pack("<I", 0)  # ArrayIndex
+    out += struct.pack("<I", count + 4)  # Length
+    out += b"\x00"  # terminator
+    out += struct.pack("<i", count)
+    out += bytes(1 if v else 0 for v in values)
     return out
 
 

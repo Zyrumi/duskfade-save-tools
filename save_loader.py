@@ -25,6 +25,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from angled_button import AngledButton
 import gvas_lite
 import tool_config
+import unlocks
 import updater
 
 STEAM_APP_ID = "2542020"
@@ -449,6 +450,9 @@ class LoaderApp(tk.Tk):
         AngledButton(bar, "Rename checkpoint", command=self._rename_selected, width=170, height=32).pack(
             side="left"
         )
+        AngledButton(bar, "Unlocks...", command=self._open_unlocks, width=110, height=32).pack(
+            side="left", padx=(8, 0)
+        )
         AngledButton(
             bar, "Load Selected Save", style="primary", command=self._load_selected, width=170, height=32
         ).pack(side="right")
@@ -552,6 +556,17 @@ class LoaderApp(tk.Tk):
 
     def _launch_game(self):
         os.startfile(f"steam://rungameid/{STEAM_APP_ID}")
+
+    def _open_unlocks(self):
+        active = self._active_slot_path()
+        if active is None:
+            return
+        if not active.exists():
+            messagebox.showinfo(
+                "No save yet", f"{active.name} doesn't exist yet -- reach the first in-game checkpoint first."
+            )
+            return
+        UnlocksDialog(self, active)
 
     def _active_slot_path(self) -> Path | None:
         slot = self.slot_var.get()
@@ -664,6 +679,111 @@ class LoaderApp(tk.Tk):
 
         messagebox.showinfo(
             "Loaded", f"'{e.display_group}' is now active in {active.name}.\n\nRestart/reload in-game to pick it up."
+        )
+
+
+class UnlocksDialog(tk.Toplevel):
+    """Toggle any ability/gadget/upgrade-tier flag directly on the active
+    save, bypassing whatever it normally takes to earn it in-game. Operates
+    on the live active slot (same file "Load Selected Save" writes to), not
+    whatever's selected in the library table -- so it always affects the
+    save you're about to actually play."""
+
+    def __init__(self, parent: LoaderApp, active_path: Path):
+        super().__init__(parent, bg=DUSK)
+        self.parent_app = parent
+        self.active_path = active_path
+        self.title("Abilities & Upgrades")
+        self.resizable(False, False)
+        self.transient(parent)
+
+        current = unlocks.read_unlock_values(active_path)
+        self.vars: dict[str, list[tk.BooleanVar]] = {}
+
+        body = tk.Frame(self, bg=DUSK, padx=20, pady=16)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(
+            body,
+            text="Abilities & Upgrades",
+            bg=DUSK,
+            fg=AMBER,
+            font=("Segoe UI", 13, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            body,
+            text=f"Toggle anything on or off directly -- no need to purchase/unlock it first.\nApplies to {active_path.name}.",
+            bg=DUSK,
+            fg=INK_DIM,
+            font=("Segoe UI", 9),
+            justify="left",
+        ).pack(anchor="w", pady=(4, 12))
+
+        for name, group_label, slot_labels in unlocks.UNLOCK_GROUPS:
+            section = tk.Frame(body, bg=DUSK)
+            section.pack(fill="x", pady=(0, 10))
+            tk.Label(section, text=group_label, bg=DUSK, fg=TEAL, font=("Segoe UI", 10, "bold")).pack(
+                anchor="w"
+            )
+            row = tk.Frame(section, bg=DUSK)
+            row.pack(fill="x", pady=(2, 0))
+            existing = current.get(name, [False] * len(slot_labels))
+            slot_vars = []
+            for slot_label, is_set in zip(slot_labels, existing):
+                var = tk.BooleanVar(value=is_set)
+                slot_vars.append(var)
+                ttk.Checkbutton(row, text=slot_label, variable=var).pack(side="left", padx=(0, 16))
+            self.vars[name] = slot_vars
+
+        tk.Frame(body, bg=EDGE, height=1).pack(fill="x", pady=(2, 12))
+
+        btn_row = tk.Frame(body, bg=DUSK)
+        btn_row.pack(fill="x")
+        AngledButton(btn_row, "Select All", command=self._select_all, width=100, height=28, bg=DUSK).pack(
+            side="left"
+        )
+        AngledButton(btn_row, "Select None", command=self._select_none, width=100, height=28, bg=DUSK).pack(
+            side="left", padx=(8, 0)
+        )
+        AngledButton(btn_row, "Cancel", command=self.destroy, width=90, height=28, bg=DUSK).pack(
+            side="right"
+        )
+        AngledButton(btn_row, "Apply", style="primary", command=self._apply, width=100, height=28, bg=DUSK).pack(
+            side="right", padx=(0, 8)
+        )
+
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+        self.update_idletasks()
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        dw, dh = self.winfo_width(), self.winfo_height()
+        self.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+        self.grab_set()
+
+    def _select_all(self):
+        for slot_vars in self.vars.values():
+            for var in slot_vars:
+                var.set(True)
+
+    def _select_none(self):
+        for slot_vars in self.vars.values():
+            for var in slot_vars:
+                var.set(False)
+
+    def _apply(self):
+        values = {name: [var.get() for var in slot_vars] for name, slot_vars in self.vars.items()}
+        try:
+            unlocks.apply_unlock_values(self.active_path, values)
+        except Exception as exc:
+            messagebox.showerror("Couldn't apply", f"Failed to write changes:\n{exc}")
+            return
+        self.destroy()
+        messagebox.showinfo(
+            "Applied",
+            f"Updated {self.active_path.name}. Your previous save was backed up automatically.\n\n"
+            "Retry/reload in-game to pick up the changes.",
         )
 
 
