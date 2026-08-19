@@ -8,15 +8,17 @@ never a popup or crash.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-CURRENT_VERSION = "1.0.2"
+CURRENT_VERSION = "1.0.3"
 REPO = "Zyrumi/duskfade-save-tools"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "DuskfadeSaveLoader.exe"
@@ -80,7 +82,14 @@ def download_and_apply(info: UpdateInfo, on_progress, on_error) -> None:
     def worker():
         try:
             exe_path = Path(sys.executable).resolve()
-            new_path = exe_path.with_name(exe_path.stem + "_update.exe")
+            # Downloaded into the system temp dir, not next to the exe --
+            # someone running the bare exe straight out of e.g. Downloads
+            # shouldn't end up with update scratch files cluttering that
+            # folder. Only the final swapped-in exe ever lands next to the
+            # original; everything transient stays in temp.
+            tmp_dir = Path(tempfile.gettempdir())
+            pid = os.getpid()
+            new_path = tmp_dir / f"DuskfadeSaveLoader_update_{pid}.exe"
             req = urllib.request.Request(
                 info.asset_url, headers={"User-Agent": "duskfade-save-tools-updater"}
             )
@@ -95,11 +104,15 @@ def download_and_apply(info: UpdateInfo, on_progress, on_error) -> None:
                         on_progress(read / total)
                     chunk = resp.read(65536)
 
-            bat_path = exe_path.with_name("_apply_update.bat")
+            bat_path = tmp_dir / f"DuskfadeSaveLoader_apply_update_{pid}.bat"
             bat_path.write_text(
                 "@echo off\r\n"
                 ":wait\r\n"
-                f'tasklist /fi "imagename eq {exe_path.name}" | find /i "{exe_path.name}" >nul\r\n'
+                # Match by PID, not image name -- an image-name filter would
+                # also match a *different*, unrelated running copy of this
+                # same exe (e.g. one launched from another folder) and wait
+                # on that one forever instead of this actual process.
+                f'tasklist /fi "PID eq {pid}" | find "{pid}" >nul\r\n'
                 "if not errorlevel 1 (\r\n"
                 "  timeout /t 1 /nobreak >nul\r\n"
                 "  goto wait\r\n"
@@ -135,8 +148,6 @@ def download_and_apply(info: UpdateInfo, on_progress, on_error) -> None:
                 close_fds=True,
             )
             on_progress(1.0)
-            import os
-
             os._exit(0)  # skip Tk teardown -- the batch is already waiting on this pid
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             on_error(str(e))
