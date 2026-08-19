@@ -16,7 +16,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-CURRENT_VERSION = "1.0.1"
+CURRENT_VERSION = "1.0.2"
 REPO = "Zyrumi/duskfade-save-tools"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "DuskfadeSaveLoader.exe"
@@ -104,14 +104,34 @@ def download_and_apply(info: UpdateInfo, on_progress, on_error) -> None:
                 "  timeout /t 1 /nobreak >nul\r\n"
                 "  goto wait\r\n"
                 ")\r\n"
-                f'del "{exe_path}"\r\n'
+                # The process no longer shows up in tasklist, but Windows can
+                # take a moment longer to fully release the exe's file
+                # mapping -- retry the delete instead of assuming one attempt
+                # is enough, rather than silently leaving the old exe in place.
+                ":delete_retry\r\n"
+                f'del "{exe_path}" >nul 2>&1\r\n'
+                f'if exist "{exe_path}" (\r\n'
+                "  timeout /t 1 /nobreak >nul\r\n"
+                "  goto delete_retry\r\n"
+                ")\r\n"
                 f'move /y "{new_path}" "{exe_path}"\r\n'
                 f'start "" "{exe_path}"\r\n'
                 'del "%~f0"\r\n'
             )
+            # CREATE_NO_WINDOW and DETACHED_PROCESS are documented by
+            # Microsoft as mutually exclusive -- combining them (as an
+            # earlier version of this code did) left the batch helper not
+            # properly detached, so it got cut off mid-sequence by the
+            # os._exit() below instead of finishing the swap. CREATE_NO_WINDOW
+            # alone is the correct flag for running a console command with no
+            # visible window; DEVNULL severs the inherited pipes so the child
+            # is fully independent of this process's lifetime.
             subprocess.Popen(
                 [str(bat_path)],
-                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 close_fds=True,
             )
             on_progress(1.0)

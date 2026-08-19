@@ -367,13 +367,14 @@ class LoaderApp(tk.Tk):
         tk.Frame(banner, bg=EDGE, height=1).pack(fill="x")
 
         self.update_btn = AngledButton(
-            banner, "", style="primary", command=self._on_update_clicked, width=200, height=26, bg=DUSK
+            banner, "", style="primary", command=self._on_update_clicked, width=150, height=26, bg=DUSK,
+            font=("Segoe UI", 9, "bold"),
         )
         # Hidden until an update is actually found (see _show_update_banner).
 
     def _show_update_banner(self, info: updater.UpdateInfo):
         self.update_info = info
-        self.update_btn.set_text(f"Update available: {info.version} — click to install")
+        self.update_btn.set_text(f"Update to {info.version}")
         self.update_btn.place(relx=1.0, rely=0.0, anchor="ne", x=-8, y=8)
 
     def _on_update_clicked(self):
@@ -399,7 +400,7 @@ class LoaderApp(tk.Tk):
 
     def _on_update_error(self, message: str):
         self.update_btn.set_enabled(True)
-        self.update_btn.set_text(f"Update available: {self.update_info.version} — click to install")
+        self.update_btn.set_text(f"Update to {self.update_info.version}")
         messagebox.showerror("Update failed", f"Couldn't install the update:\n{message}")
 
     def _build_top_bar(self):
