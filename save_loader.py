@@ -1,12 +1,13 @@
 """
-Duskfade Save Loader
+Duskfade Save Editor
 ---------------------
 Successor to "Zyrumi's Sheepy Loader" — browse a library of saved game
-states (auto-captured load zones/bosses from auto_save_copier.py, plus your
-own manually-saved spots) and inject any of them into a live save slot.
+states (auto-captured load zones/bosses from auto_save_copier.py) and
+inject any of them into a live save slot, or edit unlocks/outfit directly
+on your active save.
 
 Your current save is always backed up automatically before anything is
-overwritten, so loading a library save is non-destructive.
+overwritten, so any change here is non-destructive.
 
 Run via run_save_loader.bat, or `python save_loader.py`.
 """
@@ -207,7 +208,7 @@ class LoaderApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Duskfade Save Loader")
+        self.title("Duskfade Save Editor")
         self.geometry("900x560")
         self.minsize(720, 420)
         try:
@@ -347,14 +348,14 @@ class LoaderApp(tk.Tk):
         banner.pack(fill="x")
         tk.Label(
             banner,
-            text="Duskfade Save Loader",
+            text="Duskfade Save Editor",
             bg=DUSK,
             fg=AMBER,
             font=("Segoe UI", 15, "bold"),
         ).pack(anchor="w", padx=12, pady=(10, 2))
         tk.Label(
             banner,
-            text="Browse captured checkpoints and your own saved spots, then inject one into a live slot.",
+            text="Browse captured checkpoints, load one into a live slot, or edit unlocks and outfit directly.",
             bg=DUSK,
             fg=INK_DIM,
             font=("Segoe UI", 9),

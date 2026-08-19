@@ -17,11 +17,11 @@ Leave it running in the background while you play. Every time your save file's c
 Library\<zone name>\<timestamp>.sav
 ```
 
-Play through the game with this running and you end up with a save for every load zone and boss fight, ready to use in the loader. It never writes to your live save — only reads and copies from it.
+Play through the game with this running and you end up with a save for every load zone and boss fight, ready to use in the editor. It never writes to your live save — only reads and copies from it.
 
 Run via `run_auto_copier.bat`, or `python auto_save_copier.py`. Stop with Ctrl+C.
 
-## 2. Save Loader (`save_loader.py`)
+## 2. Save Editor (`save_loader.py`)
 
 A browsable list of every save in your library, plus:
 
@@ -46,7 +46,7 @@ Both tools share `config.json` (created automatically on first run, with your sa
 %LOCALAPPDATA%\Duskfade\Saved\SaveGames
 ```
 
-If your save folder is somewhere else, use "Browse..." in the Save Loader, or edit `config.json` directly. See `config.example.json` for the full set of options.
+If your save folder is somewhere else, use "Browse..." in the Save Editor, or edit `config.json` directly. See `config.example.json` for the full set of options.
 
 ## Folder layout this creates
 
