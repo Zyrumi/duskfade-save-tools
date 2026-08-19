@@ -10,8 +10,14 @@ save has none of these -- see gvas_lite.find_bool_array /
 write_bool_array_property for the confirmed on-disk shape.
 
 Slot names for Habilidades/Gadgets confirmed directly by the user
-(2026-08-19). The four Up* arrays are upgrade *tiers* (not per-item), so
-they're just "Tier 1..4" rather than named slots.
+(2026-08-19). UpHabilidades/UpGadgets are NOT sequential tiers of one
+thing -- each slot is the upgrade for one specific ability/gadget, at the
+same index as (and in the same unlock order as) Habilidades/Gadgets
+respectively (confirmed by the user 2026-08-19, after "Tier 1-4" labels
+shipped incorrectly in v1.1.0 -- e.g. UpHabilidades slot 0 is Hook's
+upgrade, not "ability upgrade tier 1"). UpMinutero/UpCuco really are
+sequential tiers of a single weapon/gadget each, so those two keep
+"Tier 1..4".
 """
 from __future__ import annotations
 
@@ -22,11 +28,14 @@ from pathlib import Path
 import gvas_lite
 import tool_config
 
+_ABILITY_NAMES = ["Hook", "Pendulum", "Sundial", "Crunia's Wings"]
+_GADGET_NAMES = ["Chronoblast", "Stopwatch", "Time Bomb", "Starfall"]
+
 UNLOCK_GROUPS: list[tuple[str, str, list[str]]] = [
-    ("Habilidades", "Abilities", ["Hook", "Pendulum", "Sundial", "Crunia's Wings"]),
-    ("Gadgets", "Gadgets", ["Chronoblast", "Stopwatch", "Time Bomb", "Starfall"]),
-    ("UpHabilidades", "Ability Upgrades", ["Tier 1", "Tier 2", "Tier 3", "Tier 4"]),
-    ("UpGadgets", "Gadget Upgrades", ["Tier 1", "Tier 2", "Tier 3", "Tier 4"]),
+    ("Habilidades", "Abilities", _ABILITY_NAMES),
+    ("Gadgets", "Gadgets", _GADGET_NAMES),
+    ("UpHabilidades", "Ability Upgrades", [f"{n} Upgrade" for n in _ABILITY_NAMES]),
+    ("UpGadgets", "Gadget Upgrades", [f"{n} Upgrade" for n in _GADGET_NAMES]),
     ("UpMinutero", "Minutero (Sword) Upgrades", ["Tier 1", "Tier 2", "Tier 3", "Tier 4"]),
     ("UpCuco", "Cuco (Cuckoo) Upgrades", ["Tier 1", "Tier 2", "Tier 3", "Tier 4"]),
 ]
