@@ -4,7 +4,8 @@ Save management and practice tools for [Duskfade](https://store.steampowered.com
 
 **Just want the app?** Grab the packaged Windows build from [Releases](https://github.com/Zyrumi/duskfade-save-tools/releases/latest) — it's self-contained (starter checkpoint library and icon built in, no Python or the Auto Save-Copier required to get started). That library currently covers the **any% route only** (not every checkpoint in the game) — it grows with future releases. Run the Auto Save-Copier below yourself if you want your own saves added.
 
-> **Windows will warn you before running it.** This is an unsigned exe from a small community project, so Windows SmartScreen shows a "Windows protected your PC" prompt on first run — that's normal, not a sign anything's wrong. Click **More info** → **Run anyway**.
+> **Windows will warn you before running it.** This is an unsigned exe from a small community project, so Windows SmartScreen shows a "Windows protected your PC" prompt on first run. That's normal, and not a sign that anything is wrong. 
+Click **More info** → **Run anyway**.
 
 Two tools that work together:
 
