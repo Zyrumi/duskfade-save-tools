@@ -29,6 +29,10 @@ A browsable list of every save in your library, plus:
 - **Rename checkpoint** — give any entry a display name (most bosses already ship with their real name baked in).
 - **Lock default slot** — pins a specific `DFSlot_*.sav` as the permanent overwrite target. While locked, the slot picker is disabled, so you can't accidentally overwrite a different save file until you deliberately unlock it.
 - **Launch Duskfade** — starts the game straight from Steam, no need to alt-tab out.
+- **Unlocks...** — toggle any ability, gadget, or upgrade tier on your active save directly, no need to earn it in-game first.
+- **Outfit...** — force any outfit, outfit color, or sword skin color on your active save, owned or not.
+
+Both **Unlocks** and **Outfit** changes apply the same way: back up automatically, write to your active slot, then pick up in-game on your next **Retry** or **Continue from menu** (walking between zones in a continuous session won't refresh them).
 
 Run via `run_save_loader.bat`, or `python save_loader.py`.
 
@@ -52,6 +56,7 @@ Backups\...           automatic safety copies made before any load
 config.json           shared settings
 capture_state.json    auto-copier's "what zone did I last see" memory
 library_names.json    any names set with "Rename" beyond the built-in defaults
+cosmetic_name_overrides.json   any outfit/color renames beyond the built-in defaults
 ```
 
 ## Requirements

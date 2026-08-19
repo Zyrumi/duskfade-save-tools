@@ -23,6 +23,8 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from angled_button import AngledButton
+import cosmetic_names
+import cosmetics
 import gvas_lite
 import tool_config
 import unlocks
@@ -128,8 +130,7 @@ def load_name_overrides() -> dict[str, str]:
 
 
 def save_name_overrides(overrides: dict[str, str]) -> None:
-    NAMES_PATH.write_text(json.dumps(overrides, indent=2))
-    tool_config.set_hidden(NAMES_PATH)
+    tool_config.write_hidden_text(NAMES_PATH, json.dumps(overrides, indent=2))
 
 
 def scan_library(cfg: dict) -> list[Entry]:
@@ -453,6 +454,9 @@ class LoaderApp(tk.Tk):
         AngledButton(bar, "Unlocks...", command=self._open_unlocks, width=110, height=32).pack(
             side="left", padx=(8, 0)
         )
+        AngledButton(bar, "Outfit...", command=self._open_cosmetics, width=100, height=32).pack(
+            side="left", padx=(8, 0)
+        )
         AngledButton(
             bar, "Load Selected Save", style="primary", command=self._load_selected, width=170, height=32
         ).pack(side="right")
@@ -567,6 +571,17 @@ class LoaderApp(tk.Tk):
             )
             return
         UnlocksDialog(self, active)
+
+    def _open_cosmetics(self):
+        active = self._active_slot_path()
+        if active is None:
+            return
+        if not active.exists():
+            messagebox.showinfo(
+                "No save yet", f"{active.name} doesn't exist yet -- reach the first in-game checkpoint first."
+            )
+            return
+        CosmeticsDialog(self, active)
 
     def _active_slot_path(self) -> Path | None:
         slot = self.slot_var.get()
@@ -784,6 +799,154 @@ class UnlocksDialog(tk.Toplevel):
             "Applied",
             f"Updated {self.active_path.name}. Your previous save was backed up automatically.\n\n"
             "Retry/reload in-game to pick up the changes.",
+        )
+
+
+class CosmeticsDialog(tk.Toplevel):
+    """Force the equipped outfit / outfit color / sword skin color on the
+    active save, bypassing whatever it normally takes to own them. Outfit
+    and outfit color are linked -- switching outfit repopulates the color
+    dropdown with that outfit's own variant names and resets the choice to
+    Default, since color index 5 means a different thing per outfit.
+    Weapon (sword) color is a separate, independent equipment slot."""
+
+    def __init__(self, parent: LoaderApp, active_path: Path):
+        super().__init__(parent, bg=DUSK)
+        self.active_path = active_path
+        self.title("Outfit")
+        self.resizable(False, False)
+        self.transient(parent)
+
+        current = cosmetics.read_cosmetic_values(active_path)
+        self.outfit_index = current.get("IndexSkin") or 0
+        self.outfit_color_index = current.get("IndexRecolor") or 0
+        self.weapon_color_index = current.get("IndexRecolorEspada") or 0
+
+        body = tk.Frame(self, bg=DUSK, padx=20, pady=16)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="Outfit", bg=DUSK, fg=AMBER, font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        tk.Label(
+            body,
+            text=f"Force any outfit or color, owned or not.\nApplies to {active_path.name}.",
+            bg=DUSK,
+            fg=INK_DIM,
+            font=("Segoe UI", 9),
+            justify="left",
+        ).pack(anchor="w", pady=(4, 14))
+
+        self.outfit_combo = self._build_row(body, "Outfit", self._rename_outfit)
+        self.outfit_color_combo = self._build_row(body, "Outfit Color", self._rename_outfit_color)
+        self.weapon_color_combo = self._build_row(body, "Sword Skin Color", self._rename_weapon_color)
+
+        self.outfit_combo["values"] = [cosmetic_names.outfit_label(i) for i in range(cosmetic_names.outfit_count())]
+        self.outfit_combo.current(self.outfit_index)
+        self.weapon_color_combo["values"] = [
+            cosmetic_names.weapon_color_label(i) for i in range(cosmetic_names.weapon_color_count())
+        ]
+        self.weapon_color_combo.current(self.weapon_color_index)
+        self._refresh_outfit_color_combo(select=self.outfit_color_index)
+
+        self.outfit_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_outfit_color_combo(select=0))
+
+        tk.Frame(body, bg=EDGE, height=1).pack(fill="x", pady=(6, 12))
+
+        btn_row = tk.Frame(body, bg=DUSK)
+        btn_row.pack(fill="x")
+        AngledButton(btn_row, "Cancel", command=self.destroy, width=90, height=28, bg=DUSK).pack(side="right")
+        AngledButton(btn_row, "Apply", style="primary", command=self._apply, width=100, height=28, bg=DUSK).pack(
+            side="right", padx=(0, 8)
+        )
+
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+        self.update_idletasks()
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        dw, dh = self.winfo_width(), self.winfo_height()
+        self.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+        self.grab_set()
+
+    def _build_row(self, parent, label_text: str, rename_command) -> ttk.Combobox:
+        row = tk.Frame(parent, bg=DUSK)
+        row.pack(fill="x", pady=(0, 10))
+        tk.Label(row, text=label_text, bg=DUSK, fg=TEAL, font=("Segoe UI", 9, "bold"), width=14, anchor="w").pack(
+            side="left"
+        )
+        combo = ttk.Combobox(row, state="readonly", width=22)
+        combo.pack(side="left", padx=(0, 8))
+        AngledButton(row, "Rename", command=rename_command, width=80, height=26, bg=DUSK).pack(side="left")
+        return combo
+
+    def _refresh_outfit_color_combo(self, select: int):
+        outfit_index = self.outfit_combo.current()
+        count = cosmetic_names.outfit_color_count(outfit_index)
+        self.outfit_color_combo["values"] = [
+            cosmetic_names.outfit_color_label(outfit_index, i) for i in range(count)
+        ]
+        self.outfit_color_combo.current(min(select, count - 1))
+
+    def _rename_outfit(self):
+        i = self.outfit_combo.current()
+        if i < 0:
+            return
+        new_label = simpledialog.askstring("Rename outfit", "Display name:", initialvalue=self.outfit_combo.get())
+        if not new_label:
+            return
+        cosmetic_names.rename_outfit(i, new_label)
+        values = list(self.outfit_combo["values"])
+        values[i] = new_label
+        self.outfit_combo["values"] = values
+        self.outfit_combo.current(i)
+
+    def _rename_outfit_color(self):
+        outfit_index = self.outfit_combo.current()
+        i = self.outfit_color_combo.current()
+        if i < 0:
+            return
+        new_label = simpledialog.askstring(
+            "Rename color", "Display name:", initialvalue=self.outfit_color_combo.get()
+        )
+        if not new_label:
+            return
+        cosmetic_names.rename_outfit_color(outfit_index, i, new_label)
+        values = list(self.outfit_color_combo["values"])
+        values[i] = new_label
+        self.outfit_color_combo["values"] = values
+        self.outfit_color_combo.current(i)
+
+    def _rename_weapon_color(self):
+        i = self.weapon_color_combo.current()
+        if i < 0:
+            return
+        new_label = simpledialog.askstring(
+            "Rename weapon color", "Display name:", initialvalue=self.weapon_color_combo.get()
+        )
+        if not new_label:
+            return
+        cosmetic_names.rename_weapon_color(i, new_label)
+        values = list(self.weapon_color_combo["values"])
+        values[i] = new_label
+        self.weapon_color_combo["values"] = values
+        self.weapon_color_combo.current(i)
+
+    def _apply(self):
+        values = {
+            "IndexSkin": self.outfit_combo.current(),
+            "IndexRecolor": self.outfit_color_combo.current(),
+            "IndexRecolorEspada": self.weapon_color_combo.current(),
+        }
+        try:
+            cosmetics.apply_cosmetic_values(self.active_path, values)
+        except Exception as exc:
+            messagebox.showerror("Couldn't apply", f"Failed to write changes:\n{exc}")
+            return
+        self.destroy()
+        messagebox.showinfo(
+            "Applied",
+            f"Updated {self.active_path.name}. Your previous save was backed up automatically.\n\n"
+            "Retry/reload in-game to pick it up (walking between zones won't).",
         )
 
 

@@ -2,6 +2,7 @@
 config.json
 capture_state.json
 library_names.json
+cosmetic_name_overrides.json
 Library/
 Backups/
 
@@ -16,7 +17,7 @@ run_autosplitter.bat
 # Packaged-release-specific readme (superseded by README.md for the source repo)
 README.txt
 
-# Cosmetics/save-editing code, held back for now
+# Local scratch space for features pulled out of the main tool but not deleted
 Disabled Features/
 
 # Packaged build output (ship via GitHub Releases, not source control)

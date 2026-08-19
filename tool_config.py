@@ -46,6 +46,10 @@ def load_config() -> dict:
     return merged
 
 
+_FILE_ATTRIBUTE_HIDDEN = 0x2
+_FILE_ATTRIBUTE_NORMAL = 0x80
+
+
 def set_hidden(path: Path) -> None:
     """Windows-only: mark a file hidden so internal state/settings files
     don't clutter a folder someone's just browsing in Explorer. Best
@@ -53,15 +57,33 @@ def set_hidden(path: Path) -> None:
     try:
         import ctypes
 
-        FILE_ATTRIBUTE_HIDDEN = 0x2
-        ctypes.windll.kernel32.SetFileAttributesW(str(path), FILE_ATTRIBUTE_HIDDEN)
+        ctypes.windll.kernel32.SetFileAttributesW(str(path), _FILE_ATTRIBUTE_HIDDEN)
     except Exception:
         pass
 
 
+def write_hidden_text(path: Path, text: str) -> None:
+    """write_text, but safe to call repeatedly on a file that's already
+    hidden. A plain write_text() on an existing hidden file raises
+    PermissionError on Windows -- CreateFile's default flags can't
+    overwrite a file that already carries FILE_ATTRIBUTE_HIDDEN. Clearing
+    the attribute first (then re-hiding after) avoids that; confirmed this
+    is genuinely required, not just theoretical -- the old write-then-hide
+    version of this pattern (still what set_hidden's callers did before)
+    left config.json/library_names.json only writable exactly once per
+    file, silently raising on every save after the first."""
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetFileAttributesW(str(path), _FILE_ATTRIBUTE_NORMAL)
+    except Exception:
+        pass
+    path.write_text(text)
+    set_hidden(path)
+
+
 def save_config(cfg: dict) -> None:
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
-    set_hidden(CONFIG_PATH)
+    write_hidden_text(CONFIG_PATH, json.dumps(cfg, indent=2))
 
 
 def captures_dir(cfg: dict) -> Path:
