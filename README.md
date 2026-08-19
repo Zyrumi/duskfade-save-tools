@@ -2,6 +2,8 @@
 
 Save management and practice tools for [Duskfade](https://store.steampowered.com/app/2542020) (UE5.6). Pure Python standard library + Tkinter — no extra packages needed to run from source.
 
+**Just want the app?** Grab the packaged Windows build from [Releases](https://github.com/Zyrumi/duskfade-save-tools/releases/latest) — it ships with a starter checkpoint library, no Python or the Auto Save-Copier required. That library currently covers the **any% route only** (not every checkpoint in the game) — it grows with future releases. Run the Auto Save-Copier below yourself if you want your own saves added.
+
 Two tools that work together:
 
 ## 1. Auto Save-Copier (`auto_save_copier.py`)
@@ -21,7 +23,7 @@ Run via `run_auto_copier.bat`, or `python auto_save_copier.py`. Stop with Ctrl+C
 A browsable list of every save in your library, plus:
 
 - **Load Selected Save** — copies the chosen save over your active save slot. Your current save is always backed up first, automatically, into `Backups\` — nothing is ever lost.
-- **Rename** — give any entry a display name (most bosses already ship with their real name baked in).
+- **Rename checkpoint** — give any entry a display name (most bosses already ship with their real name baked in).
 - **Lock default slot** — pins a specific `DFSlot_*.sav` as the permanent overwrite target. While locked, the slot picker is disabled, so you can't accidentally overwrite a different save file until you deliberately unlock it.
 - **Launch Duskfade** — starts the game straight from Steam, no need to alt-tab out.
 
@@ -51,7 +53,7 @@ library_names.json    any names set with "Rename" beyond the built-in defaults
 
 ## Requirements
 
-Python 3.10+. No third-party packages.
+Running from source: Python 3.10+, no third-party packages. Running the packaged build: Windows only, no Python needed.
 
 ## GVAS format notes
 

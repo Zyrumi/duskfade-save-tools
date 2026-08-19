@@ -26,6 +26,7 @@ _update_download.exe
 _apply_update.bat
 build/
 dist/
+release/
 *.spec
 
 __pycache__/
