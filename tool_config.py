@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import sys
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -145,15 +144,6 @@ def atomic_copy(src: Path, dest: Path) -> None:
     atomic_write_bytes(dest, src.read_bytes())
 
 
-_BACKUP_LABEL_NAMES = {
-    "load": "Loading a different save",
-    "cosmetics": "Outfit change",
-    "unlocks": "Unlocks change",
-    "shards": "Shards change",
-    "restore": "Restoring a backup",
-}
-
-
 def _backup_sort_key(path: Path) -> datetime:
     # The filename's own timestamp reflects when the backup was actually
     # made (datetime.now() at copy time) -- NOT the file's mtime, which
@@ -194,8 +184,7 @@ def prune_all_backups(cfg: dict) -> None:
 def backup_active_save(dest: Path, label: str, cfg: dict | None = None) -> Path:
     """Copies dest into Backups\\<slot_stem>\\<timestamp>_before_<label>.sav
     before any in-place edit, then prunes that slot's backups down to
-    backup_retention_count. `label` should be one of _BACKUP_LABEL_NAMES's
-    keys so it displays nicely in the Restore Backup dialog."""
+    backup_retention_count."""
     if cfg is None:
         cfg = load_config()
     backup_dir = Path(cfg["backups_dir"]) / dest.stem
@@ -206,38 +195,6 @@ def backup_active_save(dest: Path, label: str, cfg: dict | None = None) -> Path:
         shutil.copy2(dest, backup_path)
     prune_backups(backup_dir, cfg.get("backup_retention_count", DEFAULT_CONFIG["backup_retention_count"]))
     return backup_path
-
-
-@dataclass
-class BackupEntry:
-    path: Path
-    label: str
-    created_at: datetime
-
-
-def list_backups(cfg: dict, slot_stem: str) -> list[BackupEntry]:
-    """Every backup on disk for one slot (e.g. 'DFSlot_1'), newest first."""
-    backup_dir = Path(cfg["backups_dir"]) / slot_stem
-    if not backup_dir.exists():
-        return []
-    entries = []
-    for p in backup_dir.glob("*.sav"):
-        ts_part, _, label_part = p.stem.partition("_before_")
-        created = parse_timestamp(ts_part) or datetime.fromtimestamp(p.stat().st_mtime)
-        label = _BACKUP_LABEL_NAMES.get(label_part, label_part.replace("_", " ").title() or "Backup")
-        entries.append(BackupEntry(path=p, label=label, created_at=created))
-    entries.sort(key=lambda e: e.created_at, reverse=True)
-    return entries
-
-
-def restore_backup(backup_path: Path, active_path: Path, cfg: dict | None = None) -> None:
-    """Restores a previously-made backup into the given active slot. Backs
-    up whatever's currently active first (label 'restore'), so restoring is
-    itself always undoable, then atomically replaces the active file."""
-    if cfg is None:
-        cfg = load_config()
-    backup_active_save(active_path, "restore", cfg)
-    atomic_copy(backup_path, active_path)
 
 
 def ensure_seed_library(cfg: dict) -> None:

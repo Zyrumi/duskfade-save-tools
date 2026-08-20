@@ -282,8 +282,8 @@ class LoaderApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Duskfade Save Editor")
-        self.geometry("980x560")
-        self.minsize(760, 420)
+        self.geometry("900x560")
+        self.minsize(720, 420)
         try:
             self.iconbitmap(str(tool_config.resource_path("duskfade.ico")))
         except Exception:
@@ -555,9 +555,6 @@ class LoaderApp(tk.Tk):
         AngledButton(bar, "Shards", command=self._open_shards, width=90, height=32).pack(
             side="left", padx=(8, 0)
         )
-        AngledButton(bar, "Restore Backup", command=self._open_restore_backup, width=140, height=32).pack(
-            side="left", padx=(8, 0)
-        )
         AngledButton(
             bar, "Load Selected Save", style="primary", command=self._load_selected, width=170, height=32
         ).pack(side="right")
@@ -691,11 +688,6 @@ class LoaderApp(tk.Tk):
         active = self._require_active_save()
         if active is not None:
             ShardsDialog(self, active)
-
-    def _open_restore_backup(self):
-        active = self._require_active_save()
-        if active is not None:
-            RestoreBackupDialog(self, active)
 
     def _active_slot_path(self) -> Path | None:
         slot = self.slot_var.get()
@@ -1007,109 +999,6 @@ class ShardsDialog(CenteredDialog):
             "Applied",
             f"Updated {self.active_path.name}. Your previous save was backed up automatically.\n\n"
             "Retry/reload in-game to pick it up (walking between zones won't).",
-        )
-
-
-class RestoreBackupDialog(CenteredDialog):
-    """Browse every automatic backup made for the active slot (before a
-    Load, an Unlocks/Outfit/Shards apply, or an earlier Restore) and put
-    one back into place -- the in-app alternative to manually digging
-    through Backups\\ in Explorer and copy-pasting a file over the live
-    save by hand."""
-
-    COLUMNS = ("when", "reason", "zone", "shards")
-    HEADINGS = {"when": "When", "reason": "Reason", "zone": "Zone", "shards": "Shards"}
-    WIDTHS = {"when": 150, "reason": 170, "zone": 170, "shards": 80}
-
-    def __init__(self, parent: LoaderApp, active_path: Path):
-        super().__init__(parent, "Restore Backup")
-        self.parent_app = parent
-        self.active_path = active_path
-
-        body = tk.Frame(self, bg=DUSK, padx=20, pady=16)
-        body.pack(fill="both", expand=True)
-
-        tk.Label(body, text="Restore Backup", bg=DUSK, fg=AMBER, font=("Segoe UI", 13, "bold")).pack(anchor="w")
-        tk.Label(
-            body,
-            text=f"Pick an earlier backup of {active_path.name} to put back in place.\n"
-            "Your current save is backed up first, automatically -- nothing is lost.",
-            bg=DUSK,
-            fg=INK_DIM,
-            font=("Segoe UI", 9),
-            justify="left",
-        ).pack(anchor="w", pady=(4, 12))
-
-        self.tree = ttk.Treeview(body, columns=self.COLUMNS, show="headings", selectmode="browse", height=10)
-        for col in self.COLUMNS:
-            self.tree.heading(col, text=self.HEADINGS[col])
-            self.tree.column(col, width=self.WIDTHS[col], anchor="w")
-        self.tree.tag_configure("odd", background=PANEL)
-        self.tree.tag_configure("even", background=PANEL_RAISED)
-        self.tree.pack(fill="both", expand=True)
-
-        self.backups = tool_config.list_backups(parent.cfg, active_path.stem)
-        for i, b in enumerate(self.backups):
-            zone = shard_count = ""
-            try:
-                summary = gvas_lite.read_summary(b.path)
-                zone = summary.zone or ""
-                shard_count = summary.shards if summary.shards is not None else ""
-            except Exception:
-                pass  # a backup that fails to parse is still restorable -- just shown with blank preview columns
-            self.tree.insert(
-                "",
-                "end",
-                iid=str(b.path),
-                tags=("even" if i % 2 == 0 else "odd",),
-                values=(b.created_at.strftime("%Y-%m-%d %H:%M:%S"), b.label, zone, shard_count),
-            )
-
-        if not self.backups:
-            tk.Label(
-                body, text="No backups yet for this slot.", bg=DUSK, fg=INK_DIM, font=("Segoe UI", 9)
-            ).pack(anchor="w", pady=(8, 0))
-
-        tk.Frame(body, bg=EDGE, height=1).pack(fill="x", pady=(12, 12))
-
-        btn_row = tk.Frame(body, bg=DUSK)
-        btn_row.pack(fill="x")
-        AngledButton(btn_row, "Cancel", command=self.destroy, width=90, height=28, bg=DUSK).pack(side="right")
-        AngledButton(
-            btn_row, "Restore", style="primary", command=self._restore, width=110, height=28, bg=DUSK
-        ).pack(side="right", padx=(0, 8))
-
-        self.show_modal()
-
-    def _restore(self):
-        sel = self.tree.selection()
-        if not sel:
-            messagebox.showinfo("Nothing selected", "Select a backup in the list first.")
-            return
-        backup = next((b for b in self.backups if str(b.path) == sel[0]), None)
-        if backup is None:
-            return
-
-        when = backup.created_at.strftime("%Y-%m-%d %H:%M:%S")
-        if not confirm(
-            self,
-            headline=f"This will overwrite {self.active_path.name}",
-            detail=f"Restoring backup from:  {when}\n{backup.label}",
-            note="Your current save is backed up first, automatically — nothing is lost.",
-            confirm_text="Restore",
-        ):
-            return
-
-        try:
-            tool_config.restore_backup(backup.path, self.active_path, self.parent_app.cfg)
-        except Exception as exc:
-            messagebox.showerror("Couldn't restore", f"Failed to restore backup:\n{exc}")
-            return
-        self.destroy()
-        messagebox.showinfo(
-            "Restored",
-            f"Restored the {when} backup ({backup.label}) into {self.active_path.name}.\n\n"
-            "Restart/reload in-game to pick it up.",
         )
 
 

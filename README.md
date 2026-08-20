@@ -32,9 +32,8 @@ A browsable list of every save in your library, plus:
 - **Unlocks** — toggle any ability, gadget, or upgrade tier on your active save directly, no need to earn it in-game first.
 - **Outfit** — force any outfit, outfit color, or sword skin color on your active save, owned or not.
 - **Shards** — set the exact shard (currency) count on your active save.
-- **Restore Backup** — browse every automatic backup made for your active slot and put one back in place, with a preview of each backup's zone/shard count. No more digging through `Backups\` in Explorer and copy-pasting a file over your live save by hand.
 
-**Unlocks**, **Outfit**, and **Shards** each show a themed confirmation — spelling out exactly what's about to change — before writing anything, the same as **Load Selected Save** and **Restore Backup** already did. Every one of these writes is atomic (via a temp-file-then-replace swap, so an interrupted write can never leave your save half-written) and backs up your current save first automatically. They all apply the same way once confirmed: back up, write, then pick up in-game on your next **Retry** or **Continue from menu** (walking between zones in a continuous session won't refresh them).
+**Unlocks**, **Outfit**, and **Shards** each show a themed confirmation — spelling out exactly what's about to change — before writing anything, the same as **Load Selected Save** already did. Every one of these writes is atomic (via a temp-file-then-replace swap, so an interrupted write can never leave your save half-written) and backs up your current save first automatically. They all apply the same way once confirmed: back up, write, then pick up in-game on your next **Retry** or **Continue from menu** (walking between zones in a continuous session won't refresh them). To manually put an old backup back in place, see [`Backup-README.md`](Backup-README.md).
 
 Run via `run_save_loader.bat`, or `python save_loader.py`.
 
@@ -54,10 +53,10 @@ If your save folder is somewhere else, use "Browse..." in the Save Editor, or ed
 
 ```
 Library\...          one folder per zone/boss
-Backups\...           automatic safety copies made before any load/edit/restore --
+Backups\...           automatic safety copies made before any load/edit --
                       kept for the newest backup_retention_count per slot (30 by
-                      default), oldest pruned automatically; browse and restore
-                      any of them from the "Restore Backup" button
+                      default), oldest pruned automatically; see Backup-README.md
+                      to restore one by hand
 config.json           shared settings
 capture_state.json    auto-copier's "what zone did I last see" memory
 library_names.json    any names set with "Rename" beyond the built-in defaults
