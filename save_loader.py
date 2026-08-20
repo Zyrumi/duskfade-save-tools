@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 import tkinter as tk
 from dataclasses import dataclass
@@ -72,13 +71,6 @@ class Entry:
     captured_at: datetime | None
     shards: int | None
     momento: int | None
-
-
-def _parse_timestamp(stem: str) -> datetime | None:
-    try:
-        return datetime.strptime(stem, "%Y-%m-%d_%H-%M-%S")
-    except ValueError:
-        return None
 
 
 # Two zones (the literal start of the game, before any real checkpoint
@@ -193,10 +185,90 @@ def _build_entry(sav: Path, group: str) -> Entry:
         shards, momento = summary.shards, summary.momento
     except Exception:
         pass
-    captured = _parse_timestamp(sav.stem)
+    captured = tool_config.parse_timestamp(sav.stem)
     if captured is None:
         captured = datetime.fromtimestamp(sav.stat().st_mtime)
     return Entry(sav, group, group, captured, shards, momento)
+
+
+class CenteredDialog(tk.Toplevel):
+    """Shared scaffolding for every dialog in this app: dusk background,
+    fixed size, centered over its parent (which may itself be another
+    CenteredDialog -- Tk nests transient Toplevels fine), Escape and the
+    window's own close button both route through the same handler. Cuts
+    what used to be ~15 duplicated lines per dialog (UnlocksDialog,
+    CosmeticsDialog, ShardsDialog, and the old one-off confirm dialog all
+    hand-rolled this identically)."""
+
+    def __init__(self, parent: tk.Misc, title: str, on_close=None):
+        super().__init__(parent, bg=DUSK)
+        self.title(title)
+        self.resizable(False, False)
+        self.transient(parent)
+        self._parent_window = parent
+        close = on_close if on_close is not None else self.destroy
+        self.protocol("WM_DELETE_WINDOW", close)
+        self.bind("<Escape>", lambda _e: close())
+
+    def show_modal(self):
+        """Call once the dialog's body is fully built -- centers it over
+        its parent (needs real widget sizes, hence the update_idletasks)
+        and makes it modal."""
+        self.update_idletasks()
+        parent = self._parent_window
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        dw, dh = self.winfo_width(), self.winfo_height()
+        self.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+        self.grab_set()
+
+
+def confirm(parent: tk.Misc, headline: str, detail: str, note: str, confirm_text: str = "Confirm") -> bool:
+    """A themed yes/no confirm -- the native messagebox.askyesno renders as
+    a plain unthemed system box that, at a glance, reads as an error rather
+    than a normal confirm. Used before every action in this app that
+    overwrites an active save (Load, Restore, and applying Unlocks/Outfit/
+    Shards), so nothing writes to a live save without the user seeing
+    exactly what's about to happen first."""
+    result = {"ok": False}
+
+    def cancel():
+        result["ok"] = False
+        dialog.destroy()
+
+    def accept():
+        result["ok"] = True
+        dialog.destroy()
+
+    dialog = CenteredDialog(parent, f"{confirm_text}?", on_close=cancel)
+    # Enter defaults to Cancel, not the destructive action -- there's no
+    # native "focused button" affordance on a Canvas-based button, so this
+    # is bound on the dialog itself instead.
+    dialog.bind("<Return>", lambda _e: cancel())
+
+    body = tk.Frame(dialog, bg=DUSK, padx=20, pady=16)
+    body.pack(fill="both", expand=True)
+
+    tk.Label(
+        body, text=f"⚠  {headline}", bg=DUSK, fg=AMBER, font=("Segoe UI", 12, "bold"), justify="left"
+    ).pack(anchor="w")
+    tk.Label(body, text=detail, bg=DUSK, fg=INK, font=("Segoe UI", 10), justify="left").pack(
+        anchor="w", pady=(10, 0)
+    )
+    tk.Label(
+        body, text=note, bg=DUSK, fg=TEAL, font=("Segoe UI", 9), justify="left", wraplength=340
+    ).pack(anchor="w", pady=(10, 0))
+
+    btn_row = tk.Frame(body, bg=DUSK)
+    btn_row.pack(fill="x", pady=(18, 0))
+    AngledButton(btn_row, "Cancel", command=cancel, width=90, height=30, bg=DUSK).pack(side="right", padx=(8, 0))
+    AngledButton(btn_row, confirm_text, style="primary", command=accept, width=110, height=30, bg=DUSK).pack(
+        side="right"
+    )
+
+    dialog.show_modal()
+    dialog.wait_window()
+    return result["ok"]
 
 
 class LoaderApp(tk.Tk):
@@ -210,8 +282,8 @@ class LoaderApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Duskfade Save Editor")
-        self.geometry("900x560")
-        self.minsize(720, 420)
+        self.geometry("980x560")
+        self.minsize(760, 420)
         try:
             self.iconbitmap(str(tool_config.resource_path("duskfade.ico")))
         except Exception:
@@ -219,6 +291,11 @@ class LoaderApp(tk.Tk):
 
         self.cfg = tool_config.load_config()
         tool_config.ensure_seed_library(self.cfg)
+        # Trims every slot's Backups\ folder down to backup_retention_count
+        # right away -- covers a folder that grew large under an older
+        # build (before pruning existed) or after lowering the retention
+        # count by hand, not just backups made from this point forward.
+        tool_config.prune_all_backups(self.cfg)
         self.entries: list[Entry] = []
 
         self._apply_theme()
@@ -478,6 +555,9 @@ class LoaderApp(tk.Tk):
         AngledButton(bar, "Shards", command=self._open_shards, width=90, height=32).pack(
             side="left", padx=(8, 0)
         )
+        AngledButton(bar, "Restore Backup", command=self._open_restore_backup, width=140, height=32).pack(
+            side="left", padx=(8, 0)
+        )
         AngledButton(
             bar, "Load Selected Save", style="primary", command=self._load_selected, width=170, height=32
         ).pack(side="right")
@@ -582,38 +662,40 @@ class LoaderApp(tk.Tk):
     def _launch_game(self):
         os.startfile(f"steam://rungameid/{STEAM_APP_ID}")
 
-    def _open_unlocks(self):
+    def _require_active_save(self) -> Path | None:
+        """The active-slot guard shared by every dialog opener below: no
+        slot selected, or the slot file doesn't exist yet (no in-game
+        checkpoint reached), both bail out with an explanatory message
+        instead of opening a dialog that has nothing to operate on."""
         active = self._active_slot_path()
         if active is None:
-            return
+            return None
         if not active.exists():
             messagebox.showinfo(
                 "No save yet", f"{active.name} doesn't exist yet -- reach the first in-game checkpoint first."
             )
-            return
-        UnlocksDialog(self, active)
+            return None
+        return active
+
+    def _open_unlocks(self):
+        active = self._require_active_save()
+        if active is not None:
+            UnlocksDialog(self, active)
 
     def _open_cosmetics(self):
-        active = self._active_slot_path()
-        if active is None:
-            return
-        if not active.exists():
-            messagebox.showinfo(
-                "No save yet", f"{active.name} doesn't exist yet -- reach the first in-game checkpoint first."
-            )
-            return
-        CosmeticsDialog(self, active)
+        active = self._require_active_save()
+        if active is not None:
+            CosmeticsDialog(self, active)
 
     def _open_shards(self):
-        active = self._active_slot_path()
-        if active is None:
-            return
-        if not active.exists():
-            messagebox.showinfo(
-                "No save yet", f"{active.name} doesn't exist yet -- reach the first in-game checkpoint first."
-            )
-            return
-        ShardsDialog(self, active)
+        active = self._require_active_save()
+        if active is not None:
+            ShardsDialog(self, active)
+
+    def _open_restore_backup(self):
+        active = self._require_active_save()
+        if active is not None:
+            RestoreBackupDialog(self, active)
 
     def _active_slot_path(self) -> Path | None:
         slot = self.slot_var.get()
@@ -621,83 +703,6 @@ class LoaderApp(tk.Tk):
             messagebox.showerror("No active slot", "No DFSlot_*.sav files found in the live save folder.")
             return None
         return Path(self.save_dir_var.get()) / slot
-
-    def _confirm_overwrite(self, active_name: str, incoming_label: str, incoming_filename: str) -> bool:
-        """A themed stand-in for messagebox.askyesno -- the native dialog
-        renders as a plain unthemed system box that, at a glance, reads as
-        an error rather than a normal confirm. This makes "you're about to
-        overwrite X" unmistakable: a bold warning-colored headline, the
-        swap spelled out, and a clearly separated reassurance that it's
-        backed up first."""
-        result = {"ok": False}
-        dialog = tk.Toplevel(self, bg=DUSK)
-        dialog.title("Overwrite active save?")
-        dialog.resizable(False, False)
-        dialog.transient(self)
-
-        body = tk.Frame(dialog, bg=DUSK, padx=20, pady=16)
-        body.pack(fill="both", expand=True)
-
-        tk.Label(
-            body,
-            text=f"⚠  This will overwrite {active_name}",
-            bg=DUSK,
-            fg=AMBER,
-            font=("Segoe UI", 12, "bold"),
-            justify="left",
-        ).pack(anchor="w")
-
-        tk.Label(
-            body,
-            text=f"Replacing it with:  {incoming_label}\n{incoming_filename}",
-            bg=DUSK,
-            fg=INK,
-            font=("Segoe UI", 10),
-            justify="left",
-        ).pack(anchor="w", pady=(10, 0))
-
-        tk.Label(
-            body,
-            text="Your current save is backed up first, automatically — nothing is lost.",
-            bg=DUSK,
-            fg=TEAL,
-            font=("Segoe UI", 9),
-            justify="left",
-            wraplength=340,
-        ).pack(anchor="w", pady=(10, 0))
-
-        btn_row = tk.Frame(body, bg=DUSK)
-        btn_row.pack(fill="x", pady=(18, 0))
-
-        def cancel():
-            result["ok"] = False
-            dialog.destroy()
-
-        def confirm():
-            result["ok"] = True
-            dialog.destroy()
-
-        dialog.protocol("WM_DELETE_WINDOW", cancel)
-        dialog.bind("<Escape>", lambda _e: cancel())
-        # Enter defaults to Cancel, not the destructive action -- there's no
-        # native "focused button" affordance on a Canvas-based button, so
-        # this is bound on the dialog itself instead.
-        dialog.bind("<Return>", lambda _e: cancel())
-
-        AngledButton(btn_row, "Cancel", command=cancel, width=90, height=30, bg=DUSK).pack(side="right", padx=(8, 0))
-        AngledButton(btn_row, "Overwrite", style="primary", command=confirm, width=110, height=30, bg=DUSK).pack(
-            side="right"
-        )
-
-        dialog.update_idletasks()
-        px, py = self.winfo_rootx(), self.winfo_rooty()
-        pw, ph = self.winfo_width(), self.winfo_height()
-        dw, dh = dialog.winfo_width(), dialog.winfo_height()
-        dialog.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
-
-        dialog.grab_set()
-        self.wait_window(dialog)
-        return result["ok"]
 
     def _load_selected(self):
         e = self._selected_entry()
@@ -708,28 +713,26 @@ class LoaderApp(tk.Tk):
         if active is None:
             return
 
-        if not self._confirm_overwrite(
-            active_name=active.name,
-            incoming_label=e.display_group,
-            incoming_filename=e.path.name,
+        if not confirm(
+            self,
+            headline=f"This will overwrite {active.name}",
+            detail=f"Replacing it with:  {e.display_group}\n{e.path.name}",
+            note="Your current save is backed up first, automatically — nothing is lost.",
+            confirm_text="Overwrite",
         ):
             return
 
-        if active.exists():
-            backup_dir = Path(self.cfg["backups_dir"]) / active.stem
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            shutil.copy2(active, backup_dir / f"{stamp}_before_load.sav")
-
         active.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(e.path, active)
+        if active.exists():
+            tool_config.backup_active_save(active, "load", self.cfg)
+        tool_config.atomic_copy(e.path, active)
 
         messagebox.showinfo(
             "Loaded", f"'{e.display_group}' is now active in {active.name}.\n\nRestart/reload in-game to pick it up."
         )
 
 
-class UnlocksDialog(tk.Toplevel):
+class UnlocksDialog(CenteredDialog):
     """Toggle any ability/gadget/upgrade-tier flag directly on the active
     save, bypassing whatever it normally takes to earn it in-game. Operates
     on the live active slot (same file "Load Selected Save" writes to), not
@@ -737,12 +740,9 @@ class UnlocksDialog(tk.Toplevel):
     save you're about to actually play."""
 
     def __init__(self, parent: LoaderApp, active_path: Path):
-        super().__init__(parent, bg=DUSK)
+        super().__init__(parent, "Abilities & Upgrades")
         self.parent_app = parent
         self.active_path = active_path
-        self.title("Abilities & Upgrades")
-        self.resizable(False, False)
-        self.transient(parent)
 
         current = unlocks.read_unlock_values(active_path)
         self.vars: dict[str, list[tk.BooleanVar]] = {}
@@ -799,15 +799,7 @@ class UnlocksDialog(tk.Toplevel):
             side="right", padx=(0, 8)
         )
 
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
-        self.bind("<Escape>", lambda _e: self.destroy())
-
-        self.update_idletasks()
-        px, py = parent.winfo_rootx(), parent.winfo_rooty()
-        pw, ph = parent.winfo_width(), parent.winfo_height()
-        dw, dh = self.winfo_width(), self.winfo_height()
-        self.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
-        self.grab_set()
+        self.show_modal()
 
     def _select_all(self):
         for slot_vars in self.vars.values():
@@ -821,6 +813,14 @@ class UnlocksDialog(tk.Toplevel):
 
     def _apply(self):
         values = {name: [var.get() for var in slot_vars] for name, slot_vars in self.vars.items()}
+        if not confirm(
+            self,
+            headline=f"Apply changes to {self.active_path.name}?",
+            detail="This overwrites your active save's ability/gadget/upgrade unlock state.",
+            note="Your current save is backed up first, automatically — nothing is lost.",
+            confirm_text="Apply",
+        ):
+            return
         try:
             unlocks.apply_unlock_values(self.active_path, values)
         except Exception as exc:
@@ -834,7 +834,7 @@ class UnlocksDialog(tk.Toplevel):
         )
 
 
-class CosmeticsDialog(tk.Toplevel):
+class CosmeticsDialog(CenteredDialog):
     """Force the equipped outfit / outfit color / sword skin color on the
     active save, bypassing whatever it normally takes to own them. Outfit
     and outfit color are linked -- switching outfit repopulates the color
@@ -843,11 +843,8 @@ class CosmeticsDialog(tk.Toplevel):
     Weapon (sword) color is a separate, independent equipment slot."""
 
     def __init__(self, parent: LoaderApp, active_path: Path):
-        super().__init__(parent, bg=DUSK)
+        super().__init__(parent, "Outfit")
         self.active_path = active_path
-        self.title("Outfit")
-        self.resizable(False, False)
-        self.transient(parent)
 
         current = cosmetics.read_cosmetic_values(active_path)
         self.outfit_index = current.get("IndexSkin") or 0
@@ -890,15 +887,7 @@ class CosmeticsDialog(tk.Toplevel):
             side="right", padx=(0, 8)
         )
 
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
-        self.bind("<Escape>", lambda _e: self.destroy())
-
-        self.update_idletasks()
-        px, py = parent.winfo_rootx(), parent.winfo_rooty()
-        pw, ph = parent.winfo_width(), parent.winfo_height()
-        dw, dh = self.winfo_width(), self.winfo_height()
-        self.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
-        self.grab_set()
+        self.show_modal()
 
     def _build_row(self, parent, label_text: str) -> ttk.Combobox:
         row = tk.Frame(parent, bg=DUSK)
@@ -924,6 +913,14 @@ class CosmeticsDialog(tk.Toplevel):
             "IndexRecolor": self.outfit_color_combo.current(),
             "IndexRecolorEspada": self.weapon_color_combo.current(),
         }
+        if not confirm(
+            self,
+            headline=f"Apply changes to {self.active_path.name}?",
+            detail="This overwrites your active save's outfit, outfit color, and sword skin color.",
+            note="Your current save is backed up first, automatically — nothing is lost.",
+            confirm_text="Apply",
+        ):
+            return
         try:
             cosmetics.apply_cosmetic_values(self.active_path, values)
         except Exception as exc:
@@ -937,15 +934,12 @@ class CosmeticsDialog(tk.Toplevel):
         )
 
 
-class ShardsDialog(tk.Toplevel):
+class ShardsDialog(CenteredDialog):
     """Set the exact shard (currency) count on the active save directly."""
 
     def __init__(self, parent: LoaderApp, active_path: Path):
-        super().__init__(parent, bg=DUSK)
+        super().__init__(parent, "Shards")
         self.active_path = active_path
-        self.title("Shards")
-        self.resizable(False, False)
-        self.transient(parent)
 
         current = shards.read_shards(active_path)
 
@@ -982,16 +976,8 @@ class ShardsDialog(tk.Toplevel):
             side="right", padx=(0, 8)
         )
 
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
-        self.bind("<Escape>", lambda _e: self.destroy())
         self.bind("<Return>", lambda _e: self._apply())
-
-        self.update_idletasks()
-        px, py = parent.winfo_rootx(), parent.winfo_rooty()
-        pw, ph = parent.winfo_width(), parent.winfo_height()
-        dw, dh = self.winfo_width(), self.winfo_height()
-        self.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
-        self.grab_set()
+        self.show_modal()
 
     def _apply(self):
         raw = self.shards_var.get().strip()
@@ -1003,6 +989,14 @@ class ShardsDialog(tk.Toplevel):
         if value < 0 or value > 2_147_483_647:
             messagebox.showerror("Invalid value", "Shards must be between 0 and 2,147,483,647.")
             return
+        if not confirm(
+            self,
+            headline=f"Apply changes to {self.active_path.name}?",
+            detail=f"This sets your active save's shard count to {value:,}.",
+            note="Your current save is backed up first, automatically — nothing is lost.",
+            confirm_text="Apply",
+        ):
+            return
         try:
             shards.apply_shards(self.active_path, value)
         except Exception as exc:
@@ -1013,6 +1007,109 @@ class ShardsDialog(tk.Toplevel):
             "Applied",
             f"Updated {self.active_path.name}. Your previous save was backed up automatically.\n\n"
             "Retry/reload in-game to pick it up (walking between zones won't).",
+        )
+
+
+class RestoreBackupDialog(CenteredDialog):
+    """Browse every automatic backup made for the active slot (before a
+    Load, an Unlocks/Outfit/Shards apply, or an earlier Restore) and put
+    one back into place -- the in-app alternative to manually digging
+    through Backups\\ in Explorer and copy-pasting a file over the live
+    save by hand."""
+
+    COLUMNS = ("when", "reason", "zone", "shards")
+    HEADINGS = {"when": "When", "reason": "Reason", "zone": "Zone", "shards": "Shards"}
+    WIDTHS = {"when": 150, "reason": 170, "zone": 170, "shards": 80}
+
+    def __init__(self, parent: LoaderApp, active_path: Path):
+        super().__init__(parent, "Restore Backup")
+        self.parent_app = parent
+        self.active_path = active_path
+
+        body = tk.Frame(self, bg=DUSK, padx=20, pady=16)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="Restore Backup", bg=DUSK, fg=AMBER, font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        tk.Label(
+            body,
+            text=f"Pick an earlier backup of {active_path.name} to put back in place.\n"
+            "Your current save is backed up first, automatically -- nothing is lost.",
+            bg=DUSK,
+            fg=INK_DIM,
+            font=("Segoe UI", 9),
+            justify="left",
+        ).pack(anchor="w", pady=(4, 12))
+
+        self.tree = ttk.Treeview(body, columns=self.COLUMNS, show="headings", selectmode="browse", height=10)
+        for col in self.COLUMNS:
+            self.tree.heading(col, text=self.HEADINGS[col])
+            self.tree.column(col, width=self.WIDTHS[col], anchor="w")
+        self.tree.tag_configure("odd", background=PANEL)
+        self.tree.tag_configure("even", background=PANEL_RAISED)
+        self.tree.pack(fill="both", expand=True)
+
+        self.backups = tool_config.list_backups(parent.cfg, active_path.stem)
+        for i, b in enumerate(self.backups):
+            zone = shard_count = ""
+            try:
+                summary = gvas_lite.read_summary(b.path)
+                zone = summary.zone or ""
+                shard_count = summary.shards if summary.shards is not None else ""
+            except Exception:
+                pass  # a backup that fails to parse is still restorable -- just shown with blank preview columns
+            self.tree.insert(
+                "",
+                "end",
+                iid=str(b.path),
+                tags=("even" if i % 2 == 0 else "odd",),
+                values=(b.created_at.strftime("%Y-%m-%d %H:%M:%S"), b.label, zone, shard_count),
+            )
+
+        if not self.backups:
+            tk.Label(
+                body, text="No backups yet for this slot.", bg=DUSK, fg=INK_DIM, font=("Segoe UI", 9)
+            ).pack(anchor="w", pady=(8, 0))
+
+        tk.Frame(body, bg=EDGE, height=1).pack(fill="x", pady=(12, 12))
+
+        btn_row = tk.Frame(body, bg=DUSK)
+        btn_row.pack(fill="x")
+        AngledButton(btn_row, "Cancel", command=self.destroy, width=90, height=28, bg=DUSK).pack(side="right")
+        AngledButton(
+            btn_row, "Restore", style="primary", command=self._restore, width=110, height=28, bg=DUSK
+        ).pack(side="right", padx=(0, 8))
+
+        self.show_modal()
+
+    def _restore(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Nothing selected", "Select a backup in the list first.")
+            return
+        backup = next((b for b in self.backups if str(b.path) == sel[0]), None)
+        if backup is None:
+            return
+
+        when = backup.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        if not confirm(
+            self,
+            headline=f"This will overwrite {self.active_path.name}",
+            detail=f"Restoring backup from:  {when}\n{backup.label}",
+            note="Your current save is backed up first, automatically — nothing is lost.",
+            confirm_text="Restore",
+        ):
+            return
+
+        try:
+            tool_config.restore_backup(backup.path, self.active_path, self.parent_app.cfg)
+        except Exception as exc:
+            messagebox.showerror("Couldn't restore", f"Failed to restore backup:\n{exc}")
+            return
+        self.destroy()
+        messagebox.showinfo(
+            "Restored",
+            f"Restored the {when} backup ({backup.label}) into {self.active_path.name}.\n\n"
+            "Restart/reload in-game to pick it up.",
         )
 
 
