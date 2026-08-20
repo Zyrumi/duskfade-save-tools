@@ -223,6 +223,32 @@ def write_bool_array_property(name: str, values: list[bool]) -> bytes:
     return out
 
 
+def patch_or_insert_int_properties(dest_data: bytearray, values: dict[str, int]) -> bytearray:
+    """values: property name -> int. Patches each IntProperty's 4 value
+    bytes in place if it's already present in dest_data; otherwise builds
+    fresh property entries and inserts them all together right before the
+    top-level terminator. Shared by cosmetics.py and shards.py -- both were
+    hand-rolling this exact find-offset-or-insert loop before.
+
+    Returns the bytearray to use going forward (insertion may reallocate,
+    so always use the return value rather than assuming in-place mutation)."""
+    strings = extract_ascii_strings(bytes(dest_data), min_len=3)
+    to_insert: dict[str, int] = {}
+    for name, value in values.items():
+        offset = find_scalar_value_offset(strings, bytes(dest_data), name, "IntProperty", 4)
+        if offset is not None:
+            dest_data[offset : offset + 4] = int(value).to_bytes(4, "little", signed=True)
+        else:
+            to_insert[name] = value
+
+    if to_insert:
+        insert_at = find_top_level_terminator(bytes(dest_data))
+        new_props = b"".join(write_int_property(n, v) for n, v in to_insert.items())
+        dest_data = dest_data[:insert_at] + bytearray(new_props) + dest_data[insert_at:]
+
+    return dest_data
+
+
 def find_top_level_terminator(data: bytes) -> int:
     """Returns the offset where the file's outermost property-list "None"
     terminator's length-prefix begins -- i.e. where new top-level

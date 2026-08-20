@@ -5,5 +5,6 @@
   "backups_dir": "Backups",
   "poll_seconds": 2,
   "last_target_slot": null,
-  "pinned_target_slot": null
+  "pinned_target_slot": null,
+  "backup_retention_count": 30
 }

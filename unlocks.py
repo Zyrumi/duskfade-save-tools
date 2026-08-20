@@ -21,8 +21,6 @@ sequential tiers of a single weapon/gadget each, so those two keep
 """
 from __future__ import annotations
 
-import shutil
-from datetime import datetime
 from pathlib import Path
 
 import gvas_lite
@@ -57,8 +55,9 @@ def read_unlock_values(path: Path) -> dict[str, list[bool]]:
 def apply_unlock_values(dest: Path, values: dict[str, list[bool]], backup_label: str = "unlocks") -> dict[str, list[bool]]:
     """values: any subset of UNLOCK_ARRAY_NAMES -> list[bool] (must match
     that array's slot count). Patches each array in place if it already
-    exists in dest, inserts it fresh otherwise. Always backs dest up first.
-    Returns the verified post-write values for every known array."""
+    exists in dest, inserts it fresh otherwise. Always backs dest up first
+    and writes atomically. Returns the verified post-write values for every
+    known array."""
     values = {k: v for k, v in values.items() if k in UNLOCK_ARRAY_NAMES}
     if not values:
         return read_unlock_values(dest)
@@ -87,11 +86,6 @@ def apply_unlock_values(dest: Path, values: dict[str, list[bool]], backup_label:
         new_props = b"".join(gvas_lite.write_bool_array_property(n, v) for n, v in to_insert.items())
         dest_data = dest_data[:insert_at] + bytearray(new_props) + dest_data[insert_at:]
 
-    cfg = tool_config.load_config()
-    backup_dir = Path(cfg["backups_dir"]) / dest.stem
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    shutil.copy2(dest, backup_dir / f"{stamp}_before_{backup_label}.sav")
-
-    dest.write_bytes(bytes(dest_data))
+    tool_config.backup_active_save(dest, backup_label)
+    tool_config.atomic_write_bytes(dest, bytes(dest_data))
     return read_unlock_values(dest)

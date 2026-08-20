@@ -6,6 +6,8 @@ import json
 import os
 import shutil
 import sys
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 if getattr(sys, "frozen", False):
@@ -29,6 +31,11 @@ DEFAULT_CONFIG = {
     "poll_seconds": 2,
     "last_target_slot": None,
     "pinned_target_slot": None,
+    # How many backups each slot keeps (newest kept, oldest pruned) so
+    # Backups\ doesn't grow forever over a long session. 0 or less disables
+    # pruning entirely (unlimited retention) -- an explicit opt-in escape
+    # hatch, not the default.
+    "backup_retention_count": 30,
 }
 
 
@@ -107,6 +114,130 @@ def resource_path(name: str) -> Path:
     if meipass:
         return Path(meipass) / name
     return local
+
+
+def parse_timestamp(stem: str) -> datetime | None:
+    """Parses this project's one timestamp format (used for both Library
+    capture filenames and Backups filenames), or None if stem isn't that
+    shape -- shared so every caller falls back the same way instead of each
+    re-implementing its own strptime/except."""
+    try:
+        return datetime.strptime(stem, "%Y-%m-%d_%H-%M-%S")
+    except ValueError:
+        return None
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Writes data to path without ever leaving it half-written: writes to a
+    temp file in the same directory first, then atomically replaces the
+    target (os.replace is atomic on both Windows and POSIX for a same-
+    volume rename). A crash or interrupted write mid-operation leaves
+    either the untouched old file or the fully-written new one -- never a
+    truncated mix of both. Every writer of a live save file (loading a
+    library save, restoring a backup, or patching unlocks/outfit/shards)
+    goes through this."""
+    tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def atomic_copy(src: Path, dest: Path) -> None:
+    atomic_write_bytes(dest, src.read_bytes())
+
+
+_BACKUP_LABEL_NAMES = {
+    "load": "Loading a different save",
+    "cosmetics": "Outfit change",
+    "unlocks": "Unlocks change",
+    "shards": "Shards change",
+    "restore": "Restoring a backup",
+}
+
+
+def _backup_sort_key(path: Path) -> datetime:
+    # The filename's own timestamp reflects when the backup was actually
+    # made (datetime.now() at copy time) -- NOT the file's mtime, which
+    # shutil.copy2 carries over from the source save's own last-write time
+    # (e.g. an old checkpoint backed up just now still has an old mtime).
+    # Sorting by mtime would prune the wrong ones.
+    ts_part = path.stem.split("_before_", 1)[0]
+    return parse_timestamp(ts_part) or datetime.fromtimestamp(path.stat().st_mtime)
+
+
+def prune_backups(backup_dir: Path, keep: int) -> None:
+    """Deletes the oldest backups in backup_dir beyond the newest `keep`.
+    keep <= 0 means unlimited retention -- a no-op."""
+    if keep <= 0:
+        return
+    saves = sorted(backup_dir.glob("*.sav"), key=_backup_sort_key, reverse=True)
+    for stale in saves[keep:]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+
+def prune_all_backups(cfg: dict) -> None:
+    """Prunes every slot's backup folder to the configured retention count
+    -- run at startup so a folder that grew large under an older build (or
+    after lowering backup_retention_count by hand) gets trimmed immediately,
+    not just on the next edit."""
+    backups_root = Path(cfg["backups_dir"])
+    if not backups_root.exists():
+        return
+    keep = cfg.get("backup_retention_count", DEFAULT_CONFIG["backup_retention_count"])
+    for slot_dir in backups_root.iterdir():
+        if slot_dir.is_dir():
+            prune_backups(slot_dir, keep)
+
+
+def backup_active_save(dest: Path, label: str, cfg: dict | None = None) -> Path:
+    """Copies dest into Backups\\<slot_stem>\\<timestamp>_before_<label>.sav
+    before any in-place edit, then prunes that slot's backups down to
+    backup_retention_count. `label` should be one of _BACKUP_LABEL_NAMES's
+    keys so it displays nicely in the Restore Backup dialog."""
+    if cfg is None:
+        cfg = load_config()
+    backup_dir = Path(cfg["backups_dir"]) / dest.stem
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_path = backup_dir / f"{stamp}_before_{label}.sav"
+    if dest.exists():
+        shutil.copy2(dest, backup_path)
+    prune_backups(backup_dir, cfg.get("backup_retention_count", DEFAULT_CONFIG["backup_retention_count"]))
+    return backup_path
+
+
+@dataclass
+class BackupEntry:
+    path: Path
+    label: str
+    created_at: datetime
+
+
+def list_backups(cfg: dict, slot_stem: str) -> list[BackupEntry]:
+    """Every backup on disk for one slot (e.g. 'DFSlot_1'), newest first."""
+    backup_dir = Path(cfg["backups_dir"]) / slot_stem
+    if not backup_dir.exists():
+        return []
+    entries = []
+    for p in backup_dir.glob("*.sav"):
+        ts_part, _, label_part = p.stem.partition("_before_")
+        created = parse_timestamp(ts_part) or datetime.fromtimestamp(p.stat().st_mtime)
+        label = _BACKUP_LABEL_NAMES.get(label_part, label_part.replace("_", " ").title() or "Backup")
+        entries.append(BackupEntry(path=p, label=label, created_at=created))
+    entries.sort(key=lambda e: e.created_at, reverse=True)
+    return entries
+
+
+def restore_backup(backup_path: Path, active_path: Path, cfg: dict | None = None) -> None:
+    """Restores a previously-made backup into the given active slot. Backs
+    up whatever's currently active first (label 'restore'), so restoring is
+    itself always undoable, then atomically replaces the active file."""
+    if cfg is None:
+        cfg = load_config()
+    backup_active_save(active_path, "restore", cfg)
+    atomic_copy(backup_path, active_path)
 
 
 def ensure_seed_library(cfg: dict) -> None:
