@@ -345,36 +345,52 @@ class LoaderApp(tk.Tk):
         )
 
     def _build_banner(self):
-        banner = tk.Frame(self, bg=DUSK)
+        # A canvas rather than a Frame of Labels -- the key-art background
+        # needs text drawn directly on top of it (create_text has no opaque
+        # box behind it the way a Label would), not stacked in front of it.
+        banner = tk.Canvas(self, height=100, bg=DUSK, highlightthickness=0)
         banner.pack(fill="x")
-        tk.Label(
-            banner,
-            text="Duskfade Save Editor",
-            bg=DUSK,
-            fg=AMBER,
-            font=("Segoe UI", 15, "bold"),
-        ).pack(anchor="w", padx=12, pady=(10, 2))
-        tk.Label(
-            banner,
+        self.banner_canvas = banner
+
+        try:
+            self.banner_img = tk.PhotoImage(file=str(tool_config.resource_path("banner_art.png")))
+        except tk.TclError:
+            self.banner_img = None
+        self._banner_img_id = None
+        if self.banner_img is not None:
+            self._banner_img_id = banner.create_image(0, 0, image=self.banner_img, anchor="n")
+
+        banner.create_text(
+            12, 24, text="Duskfade Save Editor", fill=AMBER, font=("Segoe UI", 15, "bold"), anchor="w"
+        )
+        banner.create_text(
+            12,
+            48,
             text="Browse captured checkpoints, load one into a live slot, or edit unlocks and outfit directly.",
-            bg=DUSK,
-            fg=INK_DIM,
+            fill=INK_DIM,
             font=("Segoe UI", 9),
-        ).pack(anchor="w", padx=12, pady=(0, 8))
-        tk.Label(
-            banner,
-            text="built by Zyrumi",
-            bg=DUSK,
-            fg=INK_DIM,
-            font=("Segoe UI", 8),
-        ).place(relx=1.0, rely=1.0, anchor="se", x=-8, y=-6)
-        tk.Frame(banner, bg=EDGE, height=1).pack(fill="x")
+            anchor="w",
+        )
+        self._banner_credit_id = banner.create_text(
+            0, 0, text="built by Zyrumi", fill=INK_DIM, font=("Segoe UI", 8), anchor="se"
+        )
+        banner.create_rectangle(0, 99, 0, 100, fill=EDGE, outline="", tags="hairline")
+        banner.bind("<Configure>", self._on_banner_resize)
 
         self.update_btn = AngledButton(
             banner, "", style="primary", command=self._on_update_clicked, width=150, height=26, bg=DUSK,
             font=("Segoe UI", 9, "bold"),
         )
         # Hidden until an update is actually found (see _show_update_banner).
+
+    def _on_banner_resize(self, event):
+        banner = self.banner_canvas
+        if self._banner_img_id is not None:
+            # Shifted right of true center -- keeps the clock-tower glyph
+            # out from behind the title/subtitle text on the left.
+            banner.coords(self._banner_img_id, event.width / 2 + 90, 0)
+        banner.coords(self._banner_credit_id, event.width - 8, event.height - 6)
+        banner.coords("hairline", 0, event.height - 1, event.width, event.height)
 
     def _show_update_banner(self, info: updater.UpdateInfo):
         self.update_info = info
