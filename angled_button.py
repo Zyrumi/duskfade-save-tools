@@ -1,7 +1,8 @@
-"""A Canvas-based button shaped like the website's CTA buttons -- a
-slanted parallelogram (matching the site's clip-path:
-polygon(0 0, calc(100% - 10px) 0, 100% 100%, 10px 100%)) instead of a
-plain rounded rectangle, in the same amber/teal/dusk palette."""
+"""A Canvas-based button with two corners notched off (top-left, bottom-
+right) -- matching the hud-panel clip-path used across the site/tooling
+redesign (polygon(10px 0, 100% 0, 100% calc(100% - 10px),
+calc(100% - 10px) 100%, 0 100%, 0 10px)) instead of a plain rounded
+rectangle, in the same amber/teal/dusk palette."""
 from __future__ import annotations
 
 import tkinter as tk
@@ -11,8 +12,10 @@ PANEL_RAISED = "#2c2438"
 EDGE = "#3c3350"
 AMBER = "#e8935a"
 AMBER_DIM = "#b97245"
+AMBER_GLOW = "#f2a877"
 TEAL_DIM = "#3d8f88"
 INK = "#f0e6d8"
+INK_MID = "#c7bcd4"
 INK_DIM = "#9184a3"
 
 
@@ -47,21 +50,28 @@ class AngledButton(tk.Canvas):
 
     def _colors(self):
         if not self.enabled:
-            return PANEL_RAISED, INK_DIM, EDGE
+            return PANEL_RAISED, INK_DIM, EDGE, 1
         if self.style == "primary":
-            fill = AMBER_DIM if self._hover else AMBER
-            return fill, DUSK, fill
-        fill = EDGE if self._hover else PANEL_RAISED
+            # No true gradient fill on a stdlib Canvas -- a lighter,
+            # thicker outline on hover stands in for the site's
+            # box-shadow glow instead.
+            outline = AMBER_GLOW if self._hover else AMBER_DIM
+            width = 2 if self._hover else 1
+            return AMBER, DUSK, outline, width
         outline = TEAL_DIM if self._hover else EDGE
-        return fill, INK, outline
+        text_color = INK if self._hover else INK_MID
+        return PANEL_RAISED, text_color, outline, 1
 
     def _draw(self):
         self.delete("all")
         w = int(str(self["width"]))
         h = int(str(self["height"]))
-        cut = min(14, w // 6)
-        fill, text_color, outline = self._colors()
-        self.create_polygon(0, 0, w - cut, 0, w, h, cut, h, fill=fill, outline=outline, width=1)
+        cut = min(10, h // 3, w // 6)
+        fill, text_color, outline, outline_width = self._colors()
+        self.create_polygon(
+            cut, 0, w, 0, w, h - cut, w - cut, h, 0, h, 0, cut,
+            fill=fill, outline=outline, width=outline_width,
+        )
         self.create_text(w / 2, h / 2, text=self.text, fill=text_color, font=self.font)
 
     def _on_enter(self, _e):
