@@ -33,10 +33,9 @@ A browsable list of every save in your library, plus:
 - **Unlocks** — toggle any ability, gadget, or upgrade tier on your active save directly, no need to earn it in-game first.
 - **Outfit** — force any outfit, outfit color, or sword skin color on your active save, owned or not.
 - **Shards** — set the exact shard (currency) count on your active save.
+- **Hotkeys** — assign F1-F12 to instantly load a specific save (right-click any row → **Assign Quick-Load Key...**) or toggle a specific ability/gadget/upgrade on your active save (**Hotkeys** button). Handy for swapping between a couple of practice spots, or granting yourself something like Crunia's Wings mid-exploration, with a single keypress. Manage every assignment (and remove them) from the **Hotkeys** button in the bottom bar.
 
-**Unlocks**, **Outfit**, and **Shards** each show a themed confirmation — spelling out exactly what's about to change — before writing anything, the same as **Load Selected Save** already did (unless **Skip confirmations** is checked). Every one of these writes is atomic (via a temp-file-then-replace swap, so an interrupted write can never leave your save half-written) and backs up your current save first automatically. They all apply the same way once confirmed: back up, write, then pick up in-game on your next **Retry** or **Continue from menu** (walking between zones in a continuous session won't refresh them). To manually put an old backup back in place, see [`Backup-README.md`](Backup-README.md).
-
-**Hotkeys** — Enter or double-click a row loads it straight away; `Ctrl+L` loads the selected row from anywhere in the window; `Ctrl+U` opens Unlocks; `Ctrl+O` opens Outfit; `Ctrl+G` opens Shards.
+**Unlocks**, **Outfit**, and **Shards** each show a themed confirmation — spelling out exactly what's about to change — before writing anything, the same as **Load Selected Save** already did (unless **Skip confirmations** is checked, which also covers hotkey-triggered loads/toggles). Every one of these writes is atomic (via a temp-file-then-replace swap, so an interrupted write can never leave your save half-written) and backs up your current save first automatically. They all apply the same way once confirmed: back up, write, then pick up in-game on your next **Retry** or **Continue from menu** (walking between zones in a continuous session won't refresh them). To manually put an old backup back in place, see [`Backup-README.md`](Backup-README.md).
 
 Run via `run_save_loader.bat`, or `python save_loader.py`.
 

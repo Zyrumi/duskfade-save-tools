@@ -40,6 +40,12 @@ DEFAULT_CONFIG = {
     # so this is purely a speed opt-in for anyone doing repeated practice
     # loads who finds the confirm click tedious.
     "skip_confirm": False,
+    # F1-F12 assignments. Each key maps to either
+    # {"type": "load", "path": "<absolute .sav path>"} (instantly load that
+    # library save) or {"type": "unlock", "group": ..., "index": ...,
+    # "label": ...} (toggle one ability/gadget/upgrade flag). Set from the
+    # checkpoint table's right-click menu and the Hotkeys dialog.
+    "hotkeys": {},
 }
 
 

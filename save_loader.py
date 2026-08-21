@@ -32,6 +32,7 @@ import unlocks
 import updater
 
 STEAM_APP_ID = "2542020"
+FUNCTION_KEYS = [f"F{i}" for i in range(1, 13)]
 
 # Same palette as the Duskfade speedrun hub website, so the whole tooling
 # suite reads as one thing rather than a bare-Tkinter afterthought.
@@ -281,18 +282,19 @@ def confirm(
 
 
 class LoaderApp(tk.Tk):
-    COLUMNS = ("group", "shards", "momento")
+    COLUMNS = ("group", "shards", "momento", "hotkey")
     HEADINGS = {
         "group": "Zone / Name",
         "shards": "Shards",
         "momento": "Story Progress",
+        "hotkey": "Key",
     }
 
     def __init__(self):
         super().__init__()
         self.title("Duskfade Save Editor")
-        self.geometry("900x560")
-        self.minsize(720, 420)
+        self.geometry("970x580")
+        self.minsize(780, 420)
         try:
             self.iconbitmap(str(tool_config.resource_path("duskfade.ico")))
         except Exception:
@@ -554,7 +556,7 @@ class LoaderApp(tk.Tk):
         self.tree = ttk.Treeview(frame, columns=self.COLUMNS, show="headings", selectmode="browse")
         for col in self.COLUMNS:
             self.tree.heading(col, text=self.HEADINGS[col])
-            width = 220 if col == "group" else 110
+            width = 220 if col == "group" else (60 if col == "hotkey" else 110)
             self.tree.column(col, width=width, anchor="w")
         self.tree.tag_configure("odd", background=PANEL)
         self.tree.tag_configure("even", background=PANEL_RAISED)
@@ -579,6 +581,9 @@ class LoaderApp(tk.Tk):
         AngledButton(bar, "Shards", command=self._open_shards, width=90, height=32).pack(
             side="left", padx=(8, 0)
         )
+        AngledButton(bar, "Hotkeys", command=self._open_hotkeys, width=90, height=32).pack(
+            side="left", padx=(8, 0)
+        )
         AngledButton(
             bar, "Load Selected Save", style="primary", command=self._load_selected, width=170, height=32
         ).pack(side="right")
@@ -590,8 +595,8 @@ class LoaderApp(tk.Tk):
         hint.pack(fill="x")
         ttk.Label(
             hint,
-            text="Hotkeys: Enter / double-click a row = Load  •  Ctrl+L = Load  •  "
-            "Ctrl+U = Unlocks  •  Ctrl+O = Outfit  •  Ctrl+G = Shards",
+            text="Enter / double-click a row = Load  •  right-click a row to assign a quick-load key  •  "
+            "F1-F12 = whatever you've assigned in Hotkeys",
             style="Dim.TLabel",
             font=("Segoe UI", 8),
         ).pack(side="left")
@@ -602,13 +607,88 @@ class LoaderApp(tk.Tk):
         # doesn't address on its own.
         self.tree.bind("<Return>", lambda _e: self._load_selected())
         self.tree.bind("<Double-1>", lambda _e: self._load_selected())
+        self.tree.bind("<Button-3>", self._on_tree_right_click)
 
-        # Global shortcuts so Load/Unlocks/Outfit/Shards don't need mouse
-        # travel to the bottom bar at all, once you know them.
-        self.bind_all("<Control-l>", lambda _e: self._load_selected())
-        self.bind_all("<Control-u>", lambda _e: self._open_unlocks())
-        self.bind_all("<Control-o>", lambda _e: self._open_cosmetics())
-        self.bind_all("<Control-g>", lambda _e: self._open_shards())
+        # bind_all attaches to the "all" bindtag, which every widget in the
+        # app carries -- including ones inside an open modal dialog. Without
+        # this guard, an assigned F-key would still fire (e.g. silently
+        # swapping the active save) while a Toplevel dialog has the grab.
+        def guarded(fn):
+            def handler(_e=None):
+                if self.grab_current() not in (None, self):
+                    return
+                fn()
+
+            return handler
+
+        # User-assignable F1-F12: each either quick-loads one specific
+        # library save or toggles one specific ability/gadget/upgrade flag,
+        # per whatever's configured in the Hotkeys dialog.
+        for key in FUNCTION_KEYS:
+            self.bind_all(f"<{key}>", guarded(lambda k=key: self._dispatch_hotkey(k)))
+
+    def _on_tree_right_click(self, event):
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        self.tree.selection_set(iid)
+        entry = self._selected_entry()
+        if entry is None:
+            return
+        menu = tk.Menu(self, tearoff=0, bg=PANEL_RAISED, fg=INK, activebackground=TEAL_DIM, activeforeground=DUSK)
+        menu.add_command(label="Assign Quick-Load Key...", command=lambda: AssignLoadHotkeyDialog(self, entry))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _dispatch_hotkey(self, key: str):
+        binding = self.cfg.get("hotkeys", {}).get(key)
+        if binding is None:
+            return
+        if binding.get("type") == "load":
+            entry = next((e for e in self.entries if str(e.path) == binding.get("path")), None)
+            if entry is None:
+                messagebox.showerror(
+                    "Save not found", f"{key} is assigned to a save that no longer exists in the library."
+                )
+                return
+            self._load_entry(entry)
+        elif binding.get("type") == "unlock":
+            self._quick_toggle_unlock(binding["group"], binding["index"], binding.get("label", key))
+
+    # ---------- hotkey config helpers ----------
+
+    def hotkey_for_path(self, path: Path) -> str | None:
+        for key, binding in self.cfg.get("hotkeys", {}).items():
+            if binding.get("type") == "load" and binding.get("path") == str(path):
+                return key
+        return None
+
+    def set_load_hotkey(self, path: Path, key: str | None):
+        hotkeys = {
+            k: v
+            for k, v in self.cfg.get("hotkeys", {}).items()
+            if not (v.get("type") == "load" and v.get("path") == str(path))
+        }
+        if key is not None:
+            hotkeys[key] = {"type": "load", "path": str(path)}
+        self.cfg["hotkeys"] = hotkeys
+        tool_config.save_config(self.cfg)
+        self._render_rows(select_path=path)
+
+    def set_unlock_hotkey(self, key: str, group: str, index: int, label: str):
+        hotkeys = dict(self.cfg.get("hotkeys", {}))
+        hotkeys[key] = {"type": "unlock", "group": group, "index": index, "label": label}
+        self.cfg["hotkeys"] = hotkeys
+        tool_config.save_config(self.cfg)
+
+    def clear_hotkey(self, key: str):
+        hotkeys = dict(self.cfg.get("hotkeys", {}))
+        if hotkeys.pop(key, None) is not None:
+            self.cfg["hotkeys"] = hotkeys
+            tool_config.save_config(self.cfg)
+            self._render_rows()
+
+    def _open_hotkeys(self):
+        HotkeysDialog(self)
 
     # ---------- data ----------
 
@@ -653,6 +733,7 @@ class LoaderApp(tk.Tk):
                     e.display_group,
                     e.shards if e.shards is not None else "",
                     e.momento if e.momento is not None else "",
+                    self.hotkey_for_path(e.path) or "",
                 ),
             )
         if select_path is not None:
@@ -756,6 +837,13 @@ class LoaderApp(tk.Tk):
         if not e:
             messagebox.showinfo("Nothing selected", "Select a save in the list first.")
             return
+        self._load_entry(e)
+
+    def _load_entry(self, e: Entry):
+        """Shared by the Load Selected Save button and any F-key assigned to
+        quick-load a specific save (see _dispatch_hotkey) -- both just need
+        to load *some* Entry, whether or not it's the one currently
+        selected in the table."""
         active = self._active_slot_path()
         if active is None:
             return
@@ -777,6 +865,42 @@ class LoaderApp(tk.Tk):
 
         messagebox.showinfo(
             "Loaded", f"'{e.display_group}' is now active in {active.name}.\n\nRestart/reload in-game to pick it up."
+        )
+
+    def _quick_toggle_unlock(self, group: str, index: int, label: str):
+        """F-key-assigned ability/gadget/upgrade toggle -- flips just that
+        one slot, leaving the rest of the save's unlock state untouched.
+        Same write path as the Unlocks dialog's Apply (backup, patch/insert,
+        atomic write), just scoped to a single flag instead of the whole
+        6-group matrix."""
+        active = self._require_active_save()
+        if active is None:
+            return
+        current = unlocks.read_unlock_values(active)
+        slots = list(current.get(group, []))
+        if index >= len(slots):
+            return
+        slots[index] = not slots[index]
+        verb = "Enable" if slots[index] else "Disable"
+
+        if not confirm(
+            self,
+            headline=f"{verb} {label}?",
+            detail=f"This overwrites your active save's {group} unlock state.",
+            note="Your current save is backed up first, automatically — nothing is lost.",
+            confirm_text=verb,
+            skip=self.skip_confirm_var.get(),
+        ):
+            return
+        try:
+            unlocks.apply_unlock_values(active, {group: slots})
+        except Exception as exc:
+            messagebox.showerror("Couldn't apply", f"Failed to write changes:\n{exc}")
+            return
+        messagebox.showinfo(
+            "Applied",
+            f"{label} {'enabled' if slots[index] else 'disabled'} on {active.name}.\n\n"
+            "Retry/reload in-game to pick it up.",
         )
 
 
@@ -831,6 +955,218 @@ class SaveFolderDialog(CenteredDialog):
 
     def _browse(self):
         self.parent_app._browse_save_dir()
+
+
+class AssignLoadHotkeyDialog(CenteredDialog):
+    """Binds one of F1-F12 to instantly load one specific library save --
+    opened from the checkpoint table's right-click menu. Meant for the
+    handful-of-spots case (e.g. F5/F6 for two different OOB test saves),
+    not for binding every entry in the library."""
+
+    def __init__(self, parent: LoaderApp, entry: Entry):
+        super().__init__(parent, "Assign Hotkey")
+        self.parent_app = parent
+        self.entry = entry
+
+        body = tk.Frame(self, bg=DUSK, padx=20, pady=16)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="Assign Quick-Load Key", bg=DUSK, fg=AMBER, font=("Segoe UI", 13, "bold")).pack(
+            anchor="w"
+        )
+        tk.Label(
+            body,
+            text=f"Pressing this key anywhere in the app instantly loads:\n{entry.display_group}",
+            bg=DUSK,
+            fg=INK_DIM,
+            font=("Segoe UI", 9),
+            justify="left",
+        ).pack(anchor="w", pady=(4, 12))
+
+        row = tk.Frame(body, bg=DUSK)
+        row.pack(fill="x")
+        tk.Label(row, text="Key", bg=DUSK, fg=TEAL, font=("Segoe UI", 9, "bold"), width=10, anchor="w").pack(
+            side="left"
+        )
+        self.key_combo = ttk.Combobox(row, state="readonly", width=10, values=["None"] + FUNCTION_KEYS)
+        self.key_combo.pack(side="left")
+        self.key_combo.set(parent.hotkey_for_path(entry.path) or "None")
+
+        tk.Frame(body, bg=EDGE, height=1).pack(fill="x", pady=(14, 12))
+
+        btn_row = tk.Frame(body, bg=DUSK)
+        btn_row.pack(fill="x")
+        AngledButton(btn_row, "Cancel", command=self.destroy, width=90, height=28, bg=DUSK).pack(side="right")
+        AngledButton(btn_row, "Save", style="primary", command=self._save, width=90, height=28, bg=DUSK).pack(
+            side="right", padx=(0, 8)
+        )
+
+        self.show_modal()
+
+    def _save(self):
+        chosen = self.key_combo.get()
+        key = None if chosen == "None" else chosen
+        if key is not None:
+            existing = self.parent_app.cfg.get("hotkeys", {}).get(key)
+            already_this_entry = existing is not None and existing.get("type") == "load" and existing.get(
+                "path"
+            ) == str(self.entry.path)
+            if existing is not None and not already_this_entry:
+                desc = (
+                    existing.get("label")
+                    if existing.get("type") == "unlock"
+                    else Path(existing.get("path", "")).stem
+                )
+                if not confirm(
+                    self,
+                    headline=f"{key} is already assigned",
+                    detail=f"Currently: {desc}\nReassign it to load '{self.entry.display_group}' instead?",
+                    note="",
+                    confirm_text="Reassign",
+                ):
+                    return
+        self.parent_app.set_load_hotkey(self.entry.path, key)
+        self.destroy()
+
+
+class HotkeysDialog(CenteredDialog):
+    """Central review/management spot for every assigned hotkey. Quick-load
+    keys are assigned per-row from the checkpoint table's right-click menu
+    (shown here too, with Remove) -- ability/gadget/upgrade hotkeys are both
+    added and removed here, since there's no equivalent per-row UI for
+    those."""
+
+    def __init__(self, parent: LoaderApp):
+        super().__init__(parent, "Hotkeys")
+        self.parent_app = parent
+        # Flat (display, group, index, label) list across all 24 unlock
+        # slots, e.g. ("Crunia's Wings  —  Abilities", "Habilidades", 3,
+        # "Crunia's Wings").
+        self._slots = [
+            (f"{label}  —  {group_label}", group, i, label)
+            for group, group_label, labels in unlocks.UNLOCK_GROUPS
+            for i, label in enumerate(labels)
+        ]
+
+        body = tk.Frame(self, bg=DUSK, padx=20, pady=16)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="Hotkeys", bg=DUSK, fg=AMBER, font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        tk.Label(
+            body,
+            text="F1-F12 work anywhere in the app, not just this dialog.",
+            bg=DUSK,
+            fg=INK_DIM,
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(4, 12))
+
+        tk.Label(body, text="Quick-Load Keys", bg=DUSK, fg=TEAL, font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        tk.Label(
+            body,
+            text="Assign these from the checkpoint list's right-click menu.",
+            bg=DUSK,
+            fg=INK_DIM,
+            font=("Segoe UI", 8),
+        ).pack(anchor="w", pady=(0, 6))
+        self.load_list = tk.Frame(body, bg=DUSK)
+        self.load_list.pack(fill="x")
+
+        tk.Frame(body, bg=EDGE, height=1).pack(fill="x", pady=(12, 12))
+
+        tk.Label(body, text="Ability Hotkeys", bg=DUSK, fg=TEAL, font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        tk.Label(
+            body,
+            text="Toggles the flag on your active save -- press again to turn it back off.",
+            bg=DUSK,
+            fg=INK_DIM,
+            font=("Segoe UI", 8),
+        ).pack(anchor="w", pady=(0, 6))
+        self.ability_list = tk.Frame(body, bg=DUSK)
+        self.ability_list.pack(fill="x")
+
+        add_row = tk.Frame(body, bg=DUSK)
+        add_row.pack(fill="x", pady=(8, 0))
+        self.slot_combo = ttk.Combobox(add_row, state="readonly", width=30, values=[s[0] for s in self._slots])
+        self.slot_combo.pack(side="left")
+        self.key_combo = ttk.Combobox(add_row, state="readonly", width=6, values=FUNCTION_KEYS)
+        self.key_combo.pack(side="left", padx=(6, 0))
+        AngledButton(add_row, "Assign", command=self._assign_ability, width=90, height=26, bg=DUSK).pack(
+            side="left", padx=(6, 0)
+        )
+
+        tk.Frame(body, bg=EDGE, height=1).pack(fill="x", pady=(14, 12))
+
+        btn_row = tk.Frame(body, bg=DUSK)
+        btn_row.pack(fill="x")
+        AngledButton(btn_row, "Close", style="primary", command=self.destroy, width=90, height=28, bg=DUSK).pack(
+            side="right"
+        )
+
+        self._render_lists()
+        self.show_modal()
+
+    def _render_lists(self):
+        for w in self.load_list.winfo_children():
+            w.destroy()
+        for w in self.ability_list.winfo_children():
+            w.destroy()
+
+        hotkeys = self.parent_app.cfg.get("hotkeys", {})
+        loads = sorted((k, v) for k, v in hotkeys.items() if v.get("type") == "load")
+        abilities = sorted((k, v) for k, v in hotkeys.items() if v.get("type") == "unlock")
+
+        if not loads:
+            tk.Label(self.load_list, text="None assigned yet.", bg=DUSK, fg=INK_DIM, font=("Segoe UI", 9)).pack(
+                anchor="w"
+            )
+        for key, binding in loads:
+            entry = next(
+                (e for e in self.parent_app.entries if str(e.path) == binding.get("path")), None
+            )
+            name = entry.display_group if entry is not None else Path(binding.get("path", "")).stem
+            self._row(self.load_list, key, name, lambda k=key: self._remove(k))
+
+        if not abilities:
+            tk.Label(
+                self.ability_list, text="None assigned yet.", bg=DUSK, fg=INK_DIM, font=("Segoe UI", 9)
+            ).pack(anchor="w")
+        for key, binding in abilities:
+            self._row(self.ability_list, key, binding.get("label", "?"), lambda k=key: self._remove(k))
+
+    def _row(self, parent, key: str, label: str, on_remove):
+        row = tk.Frame(parent, bg=DUSK)
+        row.pack(fill="x", pady=(0, 4))
+        tk.Label(row, text=key, bg=DUSK, fg=AMBER, font=("Segoe UI", 9, "bold"), width=4, anchor="w").pack(
+            side="left"
+        )
+        tk.Label(row, text=label, bg=DUSK, fg=INK, font=("Segoe UI", 9), anchor="w").pack(side="left", padx=(4, 0))
+        AngledButton(row, "Remove", command=on_remove, width=70, height=22, bg=DUSK).pack(side="right")
+
+    def _remove(self, key: str):
+        self.parent_app.clear_hotkey(key)
+        self._render_lists()
+
+    def _assign_ability(self):
+        slot_idx = self.slot_combo.current()
+        key = self.key_combo.get()
+        if slot_idx < 0 or not key:
+            return
+        _, group, index, label = self._slots[slot_idx]
+        existing = self.parent_app.cfg.get("hotkeys", {}).get(key)
+        if existing is not None:
+            desc = (
+                existing.get("label") if existing.get("type") == "unlock" else Path(existing.get("path", "")).stem
+            )
+            if not confirm(
+                self,
+                headline=f"{key} is already assigned",
+                detail=f"Currently: {desc}\nReassign it to {label} instead?",
+                note="",
+                confirm_text="Reassign",
+            ):
+                return
+        self.parent_app.set_unlock_hotkey(key, group, index, label)
+        self._render_lists()
 
 
 class UnlocksDialog(CenteredDialog):
