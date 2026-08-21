@@ -35,6 +35,11 @@ DEFAULT_CONFIG = {
     # pruning entirely (unlimited retention) -- an explicit opt-in escape
     # hatch, not the default.
     "backup_retention_count": 30,
+    # Skips the "are you sure" dialog before Load/Apply actions. Off by
+    # default -- the automatic backup already makes these non-destructive,
+    # so this is purely a speed opt-in for anyone doing repeated practice
+    # loads who finds the confirm click tedious.
+    "skip_confirm": False,
 }
 
 

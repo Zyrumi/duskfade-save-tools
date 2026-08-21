@@ -223,13 +223,22 @@ class CenteredDialog(tk.Toplevel):
         self.grab_set()
 
 
-def confirm(parent: tk.Misc, headline: str, detail: str, note: str, confirm_text: str = "Confirm") -> bool:
+def confirm(
+    parent: tk.Misc, headline: str, detail: str, note: str, confirm_text: str = "Confirm", skip: bool = False
+) -> bool:
     """A themed yes/no confirm -- the native messagebox.askyesno renders as
     a plain unthemed system box that, at a glance, reads as an error rather
     than a normal confirm. Used before every action in this app that
     overwrites an active save (Load, Restore, and applying Unlocks/Outfit/
     Shards), so nothing writes to a live save without the user seeing
-    exactly what's about to happen first."""
+    exactly what's about to happen first.
+
+    skip=True (from the "Skip confirmations" checkbox) bypasses the dialog
+    entirely and just returns True -- the automatic backup taken before
+    every write is what actually keeps this safe, the dialog itself is just
+    a speed bump some users find tedious on repeat loads."""
+    if skip:
+        return True
     result = {"ok": False}
 
     def cancel():
@@ -303,6 +312,7 @@ class LoaderApp(tk.Tk):
         self._build_top_bar()
         self._build_table()
         self._build_bottom_bar()
+        self._build_hotkeys()
         self.refresh()
 
         self.update_info: updater.UpdateInfo | None = None
@@ -521,6 +531,11 @@ class LoaderApp(tk.Tk):
             bar, text="Lock default slot", variable=self.pin_var, command=self._toggle_pin
         ).pack(side="left", padx=(10, 0))
 
+        self.skip_confirm_var = tk.BooleanVar(value=self.cfg.get("skip_confirm", False))
+        ttk.Checkbutton(
+            bar, text="Skip confirmations", variable=self.skip_confirm_var, command=self._toggle_skip_confirm
+        ).pack(side="left", padx=(10, 0))
+
     def _build_table(self):
         frame = ttk.Frame(self, padding=(12, 4))
         frame.pack(fill="both", expand=True)
@@ -561,6 +576,30 @@ class LoaderApp(tk.Tk):
         AngledButton(bar, "Launch Duskfade", command=self._launch_game, width=140, height=32).pack(
             side="right", padx=(0, 8)
         )
+
+        hint = ttk.Frame(self, padding=(12, 0, 12, 8))
+        hint.pack(fill="x")
+        ttk.Label(
+            hint,
+            text="Hotkeys: Enter / double-click a row = Load  •  Ctrl+L = Load  •  "
+            "Ctrl+U = Unlocks  •  Ctrl+O = Outfit  •  Ctrl+G = Shards",
+            style="Dim.TLabel",
+            font=("Segoe UI", 8),
+        ).pack(side="left")
+
+    def _build_hotkeys(self):
+        # Quick-load a row directly from the table without reaching for the
+        # button -- the friction the "Skip confirmations" checkbox above
+        # doesn't address on its own.
+        self.tree.bind("<Return>", lambda _e: self._load_selected())
+        self.tree.bind("<Double-1>", lambda _e: self._load_selected())
+
+        # Global shortcuts so Load/Unlocks/Outfit/Shards don't need mouse
+        # travel to the bottom bar at all, once you know them.
+        self.bind_all("<Control-l>", lambda _e: self._load_selected())
+        self.bind_all("<Control-u>", lambda _e: self._open_unlocks())
+        self.bind_all("<Control-o>", lambda _e: self._open_cosmetics())
+        self.bind_all("<Control-g>", lambda _e: self._open_shards())
 
     # ---------- data ----------
 
@@ -656,6 +695,10 @@ class LoaderApp(tk.Tk):
         tool_config.save_config(self.cfg)
         self.slot_combo.configure(state="disabled" if self.pin_var.get() else "readonly")
 
+    def _toggle_skip_confirm(self):
+        self.cfg["skip_confirm"] = self.skip_confirm_var.get()
+        tool_config.save_config(self.cfg)
+
     def _launch_game(self):
         os.startfile(f"steam://rungameid/{STEAM_APP_ID}")
 
@@ -711,6 +754,7 @@ class LoaderApp(tk.Tk):
             detail=f"Replacing it with:  {e.display_group}\n{e.path.name}",
             note="Your current save is backed up first, automatically — nothing is lost.",
             confirm_text="Overwrite",
+            skip=self.skip_confirm_var.get(),
         ):
             return
 
@@ -811,6 +855,7 @@ class UnlocksDialog(CenteredDialog):
             detail="This overwrites your active save's ability/gadget/upgrade unlock state.",
             note="Your current save is backed up first, automatically — nothing is lost.",
             confirm_text="Apply",
+            skip=self.parent_app.skip_confirm_var.get(),
         ):
             return
         try:
@@ -836,6 +881,7 @@ class CosmeticsDialog(CenteredDialog):
 
     def __init__(self, parent: LoaderApp, active_path: Path):
         super().__init__(parent, "Outfit")
+        self.parent_app = parent
         self.active_path = active_path
 
         current = cosmetics.read_cosmetic_values(active_path)
@@ -911,6 +957,7 @@ class CosmeticsDialog(CenteredDialog):
             detail="This overwrites your active save's outfit, outfit color, and sword skin color.",
             note="Your current save is backed up first, automatically — nothing is lost.",
             confirm_text="Apply",
+            skip=self.parent_app.skip_confirm_var.get(),
         ):
             return
         try:
@@ -931,6 +978,7 @@ class ShardsDialog(CenteredDialog):
 
     def __init__(self, parent: LoaderApp, active_path: Path):
         super().__init__(parent, "Shards")
+        self.parent_app = parent
         self.active_path = active_path
 
         current = shards.read_shards(active_path)
@@ -987,6 +1035,7 @@ class ShardsDialog(CenteredDialog):
             detail=f"This sets your active save's shard count to {value:,}.",
             note="Your current save is backed up first, automatically — nothing is lost.",
             confirm_text="Apply",
+            skip=self.parent_app.skip_confirm_var.get(),
         ):
             return
         try:

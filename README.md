@@ -28,12 +28,15 @@ A browsable list of every save in your library, plus:
 - **Load Selected Save** — copies the chosen save over your active save slot. Your current save is always backed up first, automatically, into `Backups\` — nothing is ever lost.
 - **Rename checkpoint** — give any entry a display name (most bosses already ship with their real name baked in).
 - **Lock default slot** — pins a specific `DFSlot_*.sav` as the permanent overwrite target. While locked, the slot picker is disabled, so you can't accidentally overwrite a different save file until you deliberately unlock it.
+- **Skip confirmations** — turns off the "are you sure" dialog before Load/Unlocks/Outfit/Shards actions, for anyone doing a lot of repeat loads who finds the extra click tedious. Off by default. Safe either way — the automatic backup is what actually protects your save, not the dialog.
 - **Launch Duskfade** — starts the game straight from Steam, no need to alt-tab out.
 - **Unlocks** — toggle any ability, gadget, or upgrade tier on your active save directly, no need to earn it in-game first.
 - **Outfit** — force any outfit, outfit color, or sword skin color on your active save, owned or not.
 - **Shards** — set the exact shard (currency) count on your active save.
 
-**Unlocks**, **Outfit**, and **Shards** each show a themed confirmation — spelling out exactly what's about to change — before writing anything, the same as **Load Selected Save** already did. Every one of these writes is atomic (via a temp-file-then-replace swap, so an interrupted write can never leave your save half-written) and backs up your current save first automatically. They all apply the same way once confirmed: back up, write, then pick up in-game on your next **Retry** or **Continue from menu** (walking between zones in a continuous session won't refresh them). To manually put an old backup back in place, see [`Backup-README.md`](Backup-README.md).
+**Unlocks**, **Outfit**, and **Shards** each show a themed confirmation — spelling out exactly what's about to change — before writing anything, the same as **Load Selected Save** already did (unless **Skip confirmations** is checked). Every one of these writes is atomic (via a temp-file-then-replace swap, so an interrupted write can never leave your save half-written) and backs up your current save first automatically. They all apply the same way once confirmed: back up, write, then pick up in-game on your next **Retry** or **Continue from menu** (walking between zones in a continuous session won't refresh them). To manually put an old backup back in place, see [`Backup-README.md`](Backup-README.md).
+
+**Hotkeys** — Enter or double-click a row loads it straight away; `Ctrl+L` loads the selected row from anywhere in the window; `Ctrl+U` opens Unlocks; `Ctrl+O` opens Outfit; `Ctrl+G` opens Shards.
 
 Run via `run_save_loader.bat`, or `python save_loader.py`.
 
