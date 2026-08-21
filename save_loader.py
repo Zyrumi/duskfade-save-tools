@@ -514,11 +514,13 @@ class LoaderApp(tk.Tk):
         bar = ttk.Frame(self, padding=(12, 10))
         bar.pack(fill="x")
 
-        ttk.Label(bar, text="Live save folder:").pack(side="left")
+        # The full path used to sit inline in the bar (a 52-char-wide entry)
+        # -- tucked behind a button instead so the bar has room for Skip
+        # confirmations without crowding or clipping.
         self.save_dir_var = tk.StringVar(value=self.cfg["save_dir"])
-        entry = ttk.Entry(bar, textvariable=self.save_dir_var, width=52)
-        entry.pack(side="left", padx=(6, 6))
-        AngledButton(bar, "Browse...", command=self._browse_save_dir, width=90, height=28).pack(side="left")
+        AngledButton(bar, "Save Folder...", command=self._open_save_folder, width=120, height=28).pack(
+            side="left"
+        )
 
         ttk.Label(bar, text="   Active slot:").pack(side="left", padx=(14, 6))
         self.slot_var = tk.StringVar()
@@ -675,6 +677,9 @@ class LoaderApp(tk.Tk):
         path = Path(sel[0])
         return next((e for e in self.entries if e.path == path), None)
 
+    def _open_save_folder(self):
+        SaveFolderDialog(self)
+
     def _browse_save_dir(self):
         chosen = filedialog.askdirectory(initialdir=self.save_dir_var.get())
         if chosen:
@@ -766,6 +771,59 @@ class LoaderApp(tk.Tk):
         messagebox.showinfo(
             "Loaded", f"'{e.display_group}' is now active in {active.name}.\n\nRestart/reload in-game to pick it up."
         )
+
+
+class SaveFolderDialog(CenteredDialog):
+    """Shows the live save folder and lets you change it -- pulled out from
+    always sitting inline in the top bar (as a 52-char-wide entry) once the
+    Skip confirmations checkbox needed the room instead."""
+
+    def __init__(self, parent: LoaderApp):
+        super().__init__(parent, "Save Folder")
+        self.parent_app = parent
+
+        body = tk.Frame(self, bg=DUSK, padx=20, pady=16)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="Live Save Folder", bg=DUSK, fg=AMBER, font=("Segoe UI", 13, "bold")).pack(
+            anchor="w"
+        )
+        tk.Label(
+            body,
+            text="Where Duskfade actually writes its save files.",
+            bg=DUSK,
+            fg=INK_DIM,
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(4, 12))
+
+        tk.Label(
+            body,
+            textvariable=parent.save_dir_var,
+            bg=PANEL_RAISED,
+            fg=INK,
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=380,
+            padx=8,
+            pady=6,
+        ).pack(fill="x")
+
+        tk.Frame(body, bg=EDGE, height=1).pack(fill="x", pady=(14, 12))
+
+        btn_row = tk.Frame(body, bg=DUSK)
+        btn_row.pack(fill="x")
+        AngledButton(btn_row, "Browse...", command=self._browse, width=100, height=28, bg=DUSK).pack(
+            side="left"
+        )
+        AngledButton(btn_row, "Close", style="primary", command=self.destroy, width=90, height=28, bg=DUSK).pack(
+            side="right"
+        )
+
+        self.show_modal()
+
+    def _browse(self):
+        self.parent_app._browse_save_dir()
 
 
 class UnlocksDialog(CenteredDialog):

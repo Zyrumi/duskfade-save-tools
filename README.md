@@ -62,7 +62,7 @@ Both tools share `config.json` (created automatically on first run, with your sa
 %LOCALAPPDATA%\Duskfade\Saved\SaveGames
 ```
 
-If your save folder is somewhere else, use "Browse..." in the Save Editor, or edit `config.json` directly. See `config.example.json` for the full set of options.
+If your save folder is somewhere else, use "Save Folder..." → "Browse..." in the Save Editor, or edit `config.json` directly. See `config.example.json` for the full set of options.
 
 ## Folder layout this creates
 
