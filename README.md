@@ -39,6 +39,18 @@ Run via `run_save_loader.bat`, or `python save_loader.py`.
 
 The checkpoint list order is fixed (not sortable) — it reflects when each save was actually created, so it reads top-to-bottom the way a run plays out.
 
+## 3. LiveSplit Autosplitter (`Duskfade.asl`)
+
+Splits automatically as you progress through the any% route — every split is an individual checkbox in the component's settings (grouped by chapter), all on by default, so unchecking anything not in your route just skips it. Also starts the timer automatically the instant a real New Game begins (at difficulty-confirm, before any cutscenes), and ends the run automatically at the true credits — neither of those has a save-file event to hook, so this reads a couple of the game's own read-only memory values (never writes to the game) to catch them.
+
+**Setup:**
+1. Download [`Duskfade.asl`](Duskfade.asl) from this repo.
+2. In LiveSplit: right-click → Edit Layout → **+** → Control → **Scriptable Auto Splitter**.
+3. In that component's settings, browse to your downloaded `Duskfade.asl`.
+4. If you have more than one save slot on disk, set `SlotFileName` in the component settings to your exact slot (e.g. `DFSlot_1.sav`) so an unrelated slot (e.g. a Steam Cloud sync) can't trigger a wrong split.
+
+Don't run this alongside any other Duskfade autosplitter at the same time — each would independently fire the same start/split/reset and double-advance your segments.
+
 ## First-time setup
 
 Both tools share `config.json` (created automatically on first run, with your save folder location). It defaults to:

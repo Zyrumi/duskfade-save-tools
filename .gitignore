@@ -5,13 +5,15 @@ library_names.json
 Library/
 Backups/
 
-# Old/superseded LiveSplit tooling, not part of the public toolset
-Duskfade.asl
+# Python-based LiveSplit autosplitter (external Server-component approach) --
+# superseded by the native Duskfade.asl port, not part of the public toolset
 Duskfade.lss
 duskfadelayout.lsl
 splits.json
 autosplitter.py
 run_autosplitter.bat
+gworld.py
+watch_ending.py
 
 # Packaged-release-specific readme (superseded by README.md for the source repo)
 README.txt
