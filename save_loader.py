@@ -515,28 +515,35 @@ class LoaderApp(tk.Tk):
         bar.pack(fill="x")
 
         # The full path used to sit inline in the bar (a 52-char-wide entry)
-        # -- tucked behind a button instead so the bar has room for Skip
-        # confirmations without crowding or clipping.
+        # -- tucked behind a button instead so the bar has room for the
+        # right-aligned slot controls without crowding or clipping.
         self.save_dir_var = tk.StringVar(value=self.cfg["save_dir"])
         AngledButton(bar, "Save Folder...", command=self._open_save_folder, width=120, height=28).pack(
             side="left"
         )
 
-        ttk.Label(bar, text="   Active slot:").pack(side="left", padx=(14, 6))
-        self.slot_var = tk.StringVar()
-        self.slot_combo = ttk.Combobox(bar, textvariable=self.slot_var, width=16, state="readonly")
-        self.slot_combo.pack(side="left")
-        self.slot_combo.bind("<<ComboboxSelected>>", lambda e: self._persist_slot())
-
-        self.pin_var = tk.BooleanVar()
-        ttk.Checkbutton(
-            bar, text="Lock default slot", variable=self.pin_var, command=self._toggle_pin
-        ).pack(side="left", padx=(10, 0))
+        # Everything else groups on the right, in its own sub-frame so the
+        # group moves together as the window resizes rather than each
+        # widget re-anchoring to its own edge.
+        right = ttk.Frame(bar)
+        right.pack(side="right")
 
         self.skip_confirm_var = tk.BooleanVar(value=self.cfg.get("skip_confirm", False))
         ttk.Checkbutton(
-            bar, text="Skip confirmations", variable=self.skip_confirm_var, command=self._toggle_skip_confirm
-        ).pack(side="left", padx=(10, 0))
+            right, text="Skip confirmations", variable=self.skip_confirm_var, command=self._toggle_skip_confirm
+        ).pack(side="right")
+
+        self.pin_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            right, text="Lock default slot", variable=self.pin_var, command=self._toggle_pin
+        ).pack(side="right", padx=(0, 10))
+
+        self.slot_var = tk.StringVar()
+        self.slot_combo = ttk.Combobox(right, textvariable=self.slot_var, width=16, state="readonly")
+        self.slot_combo.pack(side="right", padx=(0, 10))
+        self.slot_combo.bind("<<ComboboxSelected>>", lambda e: self._persist_slot())
+
+        ttk.Label(right, text="Active slot:").pack(side="right", padx=(0, 6))
 
     def _build_table(self):
         frame = ttk.Frame(self, padding=(12, 4))
