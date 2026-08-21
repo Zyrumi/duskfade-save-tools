@@ -18,7 +18,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-CURRENT_VERSION = "1.2.0"
+CURRENT_VERSION = "1.3.0"
 REPO = "Zyrumi/duskfade-save-tools"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "DuskfadeSaveLoader.exe"
