@@ -433,6 +433,8 @@ class LoaderApp(tk.Tk):
             relief="flat",
         )
 
+        style.configure("Status.TLabel", background=DUSK, foreground=TEAL, font=("Segoe UI", 9, "bold"))
+
     def _build_banner(self):
         # A canvas rather than a Frame of Labels -- the key-art background
         # needs text drawn directly on top of it (create_text has no opaque
@@ -593,13 +595,36 @@ class LoaderApp(tk.Tk):
 
         hint = ttk.Frame(self, padding=(12, 0, 12, 8))
         hint.pack(fill="x")
-        ttk.Label(
-            hint,
-            text="Enter / double-click a row = Load  •  right-click a row to assign a quick-load key  •  "
-            "F1-F12 = whatever you've assigned in Hotkeys",
-            style="Dim.TLabel",
-            font=("Segoe UI", 8),
-        ).pack(side="left")
+        self._hint_text = (
+            "Enter / double-click a row = Load  •  right-click a row to assign a quick-load key  •  "
+            "F1-F12 = whatever you've assigned in Hotkeys"
+        )
+        # Doubles as a status line: _show_status() below flashes a "done"
+        # confirmation here instead of a click-to-dismiss messagebox, then
+        # reverts to this same hint text on its own after a few seconds.
+        self.status_var = tk.StringVar(value=self._hint_text)
+        self.status_label = ttk.Label(hint, textvariable=self.status_var, style="Dim.TLabel", font=("Segoe UI", 8))
+        self.status_label.pack(side="left")
+        self._status_after_id = None
+
+    def _show_status(self, text: str):
+        """Non-blocking confirmation that a write completed -- replaces the
+        old messagebox.showinfo "Loaded"/"Applied" popups. Those forced a
+        click-to-dismiss even with Skip confirmations on (which only ever
+        gated the *before* prompt, not this one) and rendered as a plain
+        unthemed system dialog, unlike everything else in this app. Flashes
+        in the hint row for a few seconds, then reverts to the normal hint
+        on its own -- nothing to close."""
+        if self._status_after_id is not None:
+            self.after_cancel(self._status_after_id)
+        self.status_label.configure(style="Status.TLabel")
+        self.status_var.set(f"✓ {text}")
+        self._status_after_id = self.after(4000, self._clear_status)
+
+    def _clear_status(self):
+        self.status_label.configure(style="Dim.TLabel")
+        self.status_var.set(self._hint_text)
+        self._status_after_id = None
 
     def _build_hotkeys(self):
         # Quick-load a row directly from the table without reaching for the
@@ -863,9 +888,7 @@ class LoaderApp(tk.Tk):
             tool_config.backup_active_save(active, "load", self.cfg)
         tool_config.atomic_copy(e.path, active)
 
-        messagebox.showinfo(
-            "Loaded", f"'{e.display_group}' is now active in {active.name}.\n\nRestart/reload in-game to pick it up."
-        )
+        self._show_status(f"Loaded '{e.display_group}' into {active.name} — restart/reload in-game to pick it up.")
 
     def _quick_toggle_unlock(self, group: str, index: int, label: str):
         """F-key-assigned ability/gadget/upgrade toggle -- flips just that
@@ -897,10 +920,9 @@ class LoaderApp(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Couldn't apply", f"Failed to write changes:\n{exc}")
             return
-        messagebox.showinfo(
-            "Applied",
-            f"{label} {'enabled' if slots[index] else 'disabled'} on {active.name}.\n\n"
-            "Retry/reload in-game to pick it up.",
+        self._show_status(
+            f"{label} {'enabled' if slots[index] else 'disabled'} on {active.name} — "
+            "retry/reload in-game to pick it up."
         )
 
 
@@ -1265,11 +1287,7 @@ class UnlocksDialog(CenteredDialog):
             messagebox.showerror("Couldn't apply", f"Failed to write changes:\n{exc}")
             return
         self.destroy()
-        messagebox.showinfo(
-            "Applied",
-            f"Updated {self.active_path.name}. Your previous save was backed up automatically.\n\n"
-            "Retry/reload in-game to pick up the changes.",
-        )
+        self.parent_app._show_status(f"Updated {self.active_path.name} — retry/reload in-game to pick up the changes.")
 
 
 class CosmeticsDialog(CenteredDialog):
@@ -1367,10 +1385,8 @@ class CosmeticsDialog(CenteredDialog):
             messagebox.showerror("Couldn't apply", f"Failed to write changes:\n{exc}")
             return
         self.destroy()
-        messagebox.showinfo(
-            "Applied",
-            f"Updated {self.active_path.name}. Your previous save was backed up automatically.\n\n"
-            "Retry/reload in-game to pick it up (walking between zones won't).",
+        self.parent_app._show_status(
+            f"Updated {self.active_path.name} — retry/reload in-game to pick it up (walking between zones won't)."
         )
 
 
@@ -1445,10 +1461,8 @@ class ShardsDialog(CenteredDialog):
             messagebox.showerror("Couldn't apply", f"Failed to write changes:\n{exc}")
             return
         self.destroy()
-        messagebox.showinfo(
-            "Applied",
-            f"Updated {self.active_path.name}. Your previous save was backed up automatically.\n\n"
-            "Retry/reload in-game to pick it up (walking between zones won't).",
+        self.parent_app._show_status(
+            f"Updated {self.active_path.name} — retry/reload in-game to pick it up (walking between zones won't)."
         )
 
 
