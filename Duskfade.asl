@@ -251,6 +251,20 @@ startup
         catch { return null; }
     };
     vars.DecodeFName = decodeFName;
+
+    // Shared by onStart/onReset below -- resyncs the route pointer back to
+    // the top and re-baselines LastLevel to whatever CurrentLevel already
+    // is (not blanked to "") so the checkpoint you're already standing on
+    // when a run begins (e.g. a practice save loaded before hitting start)
+    // doesn't read as a "new" zone and fire an instant split. CurrentLevel
+    // itself is kept fresh every tick in update() regardless of phase, so
+    // by the moment either hook fires it already reflects the live save.
+    vars.ResyncRoute = (Action)(() =>
+    {
+        vars.Pointer = 0;
+        vars.LastLevel = vars.CurrentLevel;
+        vars.CreditsSplitSent = false;
+    });
 }
 
 init
@@ -293,22 +307,8 @@ init
 
 update
 {
-    // A reset (or a fresh attempt started without closing the game) should
-    // always resync back to the top of the route -- otherwise a leftover
-    // Pointer position from the previous attempt could silently swallow
-    // every split on the next one.
-    //
-    // LastLevel is baselined to whatever CurrentLevel already is (not
-    // blanked to "") -- otherwise the level you're already standing on
-    // when you hit Start (e.g. a checkpoint save loaded to begin the run)
-    // reads as a "new" zone the instant Running begins, firing a split
-    // immediately even though no real transition happened.
-    if (timer.CurrentPhase != LiveSplit.Model.TimerPhase.Running)
-    {
-        vars.Pointer = 0;
-        vars.LastLevel = vars.CurrentLevel;
-        vars.CreditsSplitSent = false;
-    }
+    // Route resync (Pointer/LastLevel/CreditsSplitSent) lives in the
+    // dedicated onStart/onReset hooks below, not here -- see their comments.
 
     // --- World name (menu/cutscene/level/credits detection) ---
     vars.PreviousWorldName = vars.CurrentWorldName;
@@ -428,6 +428,20 @@ start
         && (string)vars.CurrentWorldName != (string)vars.MenuWorldName;
 }
 
+// Fires exactly once, right as the timer actually enters Running --
+// whether that came from start() above or a manual start hotkey. Resyncs
+// the route pointer here rather than polling timer.CurrentPhase inside
+// update() every tick: it's the idiomatic LiveSplit ASL hook for this
+// (confirmed against a real published UE autosplitter, LiterallyMetaphorical
+// /Livesplit.EnGarde, which uses the equivalent onReset for its own
+// per-run state), and it also means a Pause (CurrentPhase != Running but
+// not a real reset) can no longer accidentally clear the pointer the way
+// the old polling check did.
+onStart
+{
+    ((Action)vars.ResyncRoute)();
+}
+
 reset
 {
     // reset only ever runs while the timer is actively Running, so a
@@ -439,4 +453,17 @@ reset
     if (!settings["autoreset"]) return false;
     return (string)vars.CurrentWorldName == (string)vars.MenuWorldName
         && (string)vars.PreviousWorldName != (string)vars.MenuWorldName;
+}
+
+// Fires exactly once whenever the timer actually resets -- via reset()
+// above returning true, or a manual Reset (e.g. after Credits ends the
+// run and you reset back to NotRunning before the next New Game). Also
+// resyncs here rather than every idle tick: CurrentLevel itself is kept
+// fresh in update() regardless of phase, so by the time either this or
+// onStart fires, vars.CurrentLevel already reflects the live save --
+// nothing is lost by only baselining LastLevel at these two exact
+// moments instead of continuously while idle.
+onReset
+{
+    ((Action)vars.ResyncRoute)();
 }
