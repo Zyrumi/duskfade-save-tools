@@ -67,7 +67,20 @@ startup
 
     // { level_key, label, setting id, parent chapter id }
     // level_key must exactly match the game's LastLevelPlayer value.
+    //
+    // The very first entry is special: "TickTown" is the starting town every
+    // single run passes through before Forest1, and "TickTown" also recurs
+    // later in the route (post-Volcano, post-Library, post-Boss3, post-
+    // Boss4). Because split() forward-scans from the current pointer rather
+    // than requiring adjacency, leaving this starting visit out of the route
+    // entirely let it get matched against the wrong (later) TickTown
+    // occurrence whenever the pointer was freshly reset to 0 -- silently
+    // skipping every real split between Forest1 and that later TickTown.
+    // Giving it its own settingId ("__start__", checked for explicitly in
+    // split() below) lets the pointer consume it like a normal route entry
+    // -- advancing past index 0 -- without actually firing a split.
     vars.Route = new[] {
+        new[] { "TickTown", "Ticktown (start)", "__start__", "ch1" },
         new[] { "Forest1", "Forest 1", "forest_1", "ch1" },
         new[] { "AncientTemple1_GB", "Temple 1", "temple_1", "ch1" },
         new[] { "BurntForest_GB", "Burnt Forest", "burnt_forest", "ch1" },
@@ -120,6 +133,7 @@ startup
 
     foreach (var entry in (string[][])vars.Route)
     {
+        if (entry[2] == "__start__") continue; // internal marker, not a real split -- no checkbox
         settings.Add(entry[2], true, entry[1], entry[3]);
         settings.SetToolTip(entry[2], "Internal zone key: " + entry[0]);
     }
@@ -398,6 +412,7 @@ split
         {
             vars.Pointer = i + 1;
             string settingId = route[i][2];
+            if (settingId == "__start__") return false; // consumed, not a real split
             string parentId = route[i][3];
             return settings[settingId] && settings[parentId];
         }
