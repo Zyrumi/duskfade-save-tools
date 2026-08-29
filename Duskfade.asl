@@ -139,8 +139,9 @@ startup
     }
 
     vars.Pointer = 0;
-    vars.LastLevel = "";
+    vars.LastLevel = (string)null;
     vars.CurrentLevel = (string)null;
+    vars.SaveJustChanged = false;
     vars.FileMtimes = new Dictionary<string, long>();
 
     vars.ExtractStrings = (Func<byte[], List<KeyValuePair<int, string>>>)((data) =>
@@ -229,7 +230,7 @@ startup
         {
             if (nameLen == 0)
             {
-                int entryIdOff = nameStringOffset + (nameStringOffset == 6 ? 2 : 0);
+                int entryIdOff = nameStringOffset;
                 int nextIdx = p.ReadValue<int>((IntPtr)((long)entryAddr + entryIdOff));
                 int number = p.ReadValue<int>((IntPtr)((long)entryAddr + entryIdOff + 4));
                 string baseName = decodeFName(p, poolBase, nextIdx, depth + 1);
@@ -254,15 +255,26 @@ startup
 
     // Shared by onStart/onReset below -- resyncs the route pointer back to
     // the top and re-baselines LastLevel to whatever CurrentLevel already
-    // is (not blanked to "") so the checkpoint you're already standing on
-    // when a run begins (e.g. a practice save loaded before hitting start)
-    // doesn't read as a "new" zone and fire an instant split. CurrentLevel
-    // itself is kept fresh every tick in update() regardless of phase, so
-    // by the moment either hook fires it already reflects the live save.
+    // is (not blanked to null) so a checkpoint already reached before the
+    // timer exists (e.g. a practice save loaded, then started manually
+    // while already standing there) doesn't read as a "new" zone and fire
+    // an instant split.
+    //
+    // This baseline is allowed to be stale -- e.g. wherever a previous
+    // attempt this session last saved, still sitting in CurrentLevel simply
+    // because nothing has been saved for *this* attempt yet -- without
+    // causing problems either way: split()'s vars.SaveJustChanged gate
+    // already refuses to fire unless a real disk write was just observed,
+    // so a stale, unchanged CurrentLevel can never trigger an instant
+    // spurious split; and a real New Game always writes Tutorial and then
+    // the starting TickTown checkpoint before any later zone, each a
+    // distinct value that clears the stale baseline on its own, so a later
+    // genuine revisit of whatever zone the baseline happened to match is
+    // never swallowed either.
     vars.ResyncRoute = (Action)(() =>
     {
         vars.Pointer = 0;
-        vars.LastLevel = vars.CurrentLevel;
+        vars.LastLevel = (string)vars.CurrentLevel;
         vars.CreditsSplitSent = false;
     });
 }
@@ -270,8 +282,9 @@ startup
 init
 {
     vars.Pointer = 0;
-    vars.LastLevel = "";
+    vars.LastLevel = (string)null;
     vars.CreditsSplitSent = false;
+    vars.SaveJustChanged = false;
     vars.CurrentWorldName = (string)null;
     vars.PreviousWorldName = (string)null;
 
@@ -309,6 +322,10 @@ update
 {
     // Route resync (Pointer/LastLevel/CreditsSplitSent) lives in the
     // dedicated onStart/onReset hooks below, not here -- see their comments.
+
+    // Reset every tick; only set back to true below if a save file was
+    // genuinely (re)written since the last poll -- see split()'s use of it.
+    vars.SaveJustChanged = false;
 
     // --- World name (menu/cutscene/level/credits detection) ---
     vars.PreviousWorldName = vars.CurrentWorldName;
@@ -380,7 +397,11 @@ update
 
         var strings = ((Func<byte[], List<KeyValuePair<int, string>>>)vars.ExtractStrings)(data);
         string level = ((Func<List<KeyValuePair<int, string>>, string, string>)vars.FindValueAfter)(strings, "LastLevelPlayer");
-        if (level != null) vars.CurrentLevel = level;
+        if (level != null)
+        {
+            vars.CurrentLevel = level;
+            vars.SaveJustChanged = true;
+        }
     }
     catch
     {
@@ -394,6 +415,15 @@ split
         vars.CreditsSplitSent = true;
         return true;
     }
+
+    // Nothing was actually (re)written to disk this tick -- CurrentLevel,
+    // whatever it currently holds, is not new information, so there is
+    // nothing here to react to. This is what stops a stale leftover value
+    // (e.g. wherever a previous attempt this session last saved, still
+    // sitting in CurrentLevel because nothing has been saved for *this*
+    // attempt yet) from ever being mistaken for a genuine transition --
+    // regardless of what LastLevel was baselined to at run-start.
+    if (!(bool)vars.SaveJustChanged) return false;
 
     string level = (string)vars.CurrentLevel;
     if (level == null || level == (string)vars.LastLevel) return false;
