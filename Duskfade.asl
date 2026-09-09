@@ -52,6 +52,7 @@ values.
 
 state("Duskfade-Win64-Shipping")
 {
+	byte loadscreen : "Duskfade-Win64-Shipping.exe", 0x9642340;
 }
 
 startup
@@ -496,4 +497,10 @@ reset
 onReset
 {
     ((Action)vars.ResyncRoute)();
+}
+
+
+isLoading
+{
+ 	return current.loadscreen == 6;
 }
