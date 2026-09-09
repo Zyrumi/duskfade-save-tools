@@ -59,7 +59,7 @@ startup
 {
     // Set this to your save slot's exact filename (e.g. "DFSlot_1.sav")
     // for reliable single-slot tracking. Leave "" to auto-detect instead.
-    vars.SlotFileName = "DFSlot_1.sav";
+    vars.SlotFileName = "";
 
     vars.SaveDir = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
