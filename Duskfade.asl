@@ -1,54 +1,8 @@
-/*
-Duskfade autosplitter (ASL)
-
-Watches Duskfade's save files for zone progression and splits
-automatically as the route advances. Every split point is an individual
-checkbox in this component's settings (grouped by chapter) -- uncheck
-whatever doesn't belong in your route and only the checked ones will
-actually fire. All default to on, matching the full any% route.
-
-Zones you skip entirely (never visit) are handled too: matching searches
-forward from wherever the route currently is, so if the real next zone you
-reach is a few positions further down the list, everything in between is
-quietly passed over -- no split, no getting stuck.
-
-By default it watches every DFSlot_*.sav file and reacts to whichever one
-changed most recently -- convenient with no setup, but if more than one
-save slot exists on disk, anything that touches an unrelated slot (Steam
-Cloud sync, for example) can be picked up by mistake and cause wrong or
-early splits. To avoid that, set SlotFileName below to the exact slot
-you play on, e.g. "DFSlot_1.sav" -- then only that file is ever watched.
-
-Auto-start and auto-end (both toggleable in settings, on by default) read
-Duskfade's live engine memory instead of the save file, since neither point
-has a save event to detect: New Game is watched via the game's live UWorld
-changing from the main menu's own level ("MenuInicio") to anything else
-while the timer isn't running -- confirmed by hand the very next world
-after MenuInicio is "IntroCinematica" (the intro cutscene, its own separate
-level), well before the player gets control in "Tutorial", so this fires
-at the real speedrun-legal start point (difficulty confirmed), not once
-cutscenes finish. The true ending is watched via the world "Creditos" (the
-credits sequence) -- a real distinct world that only appears once the
-post-final-boss escape sequence and cutscenes are genuinely finished.
-Returning to MenuInicio mid-run (dying and exiting, quitting out, etc.)
-auto-resets the timer for the next attempt -- this can never fire after a
-legitimate finish, since the Creditos split already ends the run (moves the
-timer out of Running phase) before any such transition could occur.
-
-GWorld/GNames are located via an external AOB signature scan (patterns
-from GSpots, github.com/Do0ks/GSpots) -- read-only, only ever
-ReadProcessMemory, never writes to the game. They resolve to a fixed
-offset from the module's own base address, so they're stable across
-relaunches and across machines running the same game build, even though
-ASLR moves the module's base address itself every launch. The FNamePool
-decoder is ported from Dumper-7 (github.com/Encryqed/Dumper-7)'s
-NameArray.cpp/.h; its usual pool-layout auto-discovery was replaced here
-with constants already confirmed live against this exact game build (see
-chunksStart/nameStride/nameHeaderShift below) -- if a future game update
-ever moves these, re-derive them the same way (see the project's
-mem_scan.py / name_scan.py research scripts) rather than guessing new
-values.
-*/
+// Duskfade any% autosplitter
+// Splits along the fixed any% route from save-file zone changes,
+// starts on New Game and ends on the credits (live memory).
+// Set SlotFileName below if you have more than one save slot.
+// Don't run alongside Duskfade-LoadSplitter.asl.
 
 state("Duskfade-Win64-Shipping")
 {
@@ -57,8 +11,7 @@ state("Duskfade-Win64-Shipping")
 
 startup
 {
-    // Set this to your save slot's exact filename (e.g. "DFSlot_1.sav")
-    // for reliable single-slot tracking. Leave "" to auto-detect instead.
+    // Exact slot file (e.g. "DFSlot_1.sav"), or "" to auto-detect
     vars.SlotFileName = "";
 
     vars.SaveDir = System.IO.Path.Combine(
@@ -66,20 +19,8 @@ startup
         "Duskfade", "Saved", "SaveGames"
     );
 
-    // { level_key, label, setting id, parent chapter id }
-    // level_key must exactly match the game's LastLevelPlayer value.
-    //
-    // The very first entry is special: "TickTown" is the starting town every
-    // single run passes through before Forest1, and "TickTown" also recurs
-    // later in the route (post-Volcano, post-Library, post-Boss3, post-
-    // Boss4). Because split() forward-scans from the current pointer rather
-    // than requiring adjacency, leaving this starting visit out of the route
-    // entirely let it get matched against the wrong (later) TickTown
-    // occurrence whenever the pointer was freshly reset to 0 -- silently
-    // skipping every real split between Forest1 and that later TickTown.
-    // Giving it its own settingId ("__start__", checked for explicitly in
-    // split() below) lets the pointer consume it like a normal route entry
-    // -- advancing past index 0 -- without actually firing a split.
+    // { level_key, label, setting id, chapter }
+    // First entry is the starting TickTown: consumed, never split
     vars.Route = new[] {
         new[] { "TickTown", "Ticktown (start)", "__start__", "ch1" },
         new[] { "Forest1", "Forest 1", "forest_1", "ch1" },
@@ -134,7 +75,7 @@ startup
 
     foreach (var entry in (string[][])vars.Route)
     {
-        if (entry[2] == "__start__") continue; // internal marker, not a real split -- no checkbox
+        if (entry[2] == "__start__") continue; // no checkbox
         settings.Add(entry[2], true, entry[1], entry[3]);
         settings.SetToolTip(entry[2], "Internal zone key: " + entry[0]);
     }
@@ -146,6 +87,7 @@ startup
     vars.ConsumedKeys = new HashSet<string>();
     vars.FileMtimes = new Dictionary<string, long>();
 
+    // Printable ASCII runs (4+ chars) with their offsets
     vars.ExtractStrings = (Func<byte[], List<KeyValuePair<int, string>>>)((data) =>
     {
         var results = new List<KeyValuePair<int, string>>();
@@ -175,6 +117,7 @@ startup
         "ArrayProperty", "ObjectProperty", "None"
     };
 
+    // First non-type string after a property name
     vars.FindValueAfter = (Func<List<KeyValuePair<int, string>>, string, string>)((strings, key) =>
     {
         int idx = strings.FindIndex(s => s.Value == key);
@@ -188,7 +131,6 @@ startup
         return null;
     });
 
-    // --- Auto-start / auto-end / auto-reset (live memory, see header comment) ---
     settings.Add("autostart", true, "Auto-start on New Game (difficulty confirm)");
     settings.Add("autoend", true, "Auto-split on Credits (true ending)");
     settings.Add("autoreset", true, "Auto-reset if you return to the menu mid-run");
@@ -202,10 +144,7 @@ startup
     vars.PreviousWorldName = (string)null;
     vars.CreditsSplitSent = false;
 
-    // FNamePool layout constants for this game build -- confirmed live
-    // 2026-08-21 (see name_scan.py). chunksStart is always 0x10 for every
-    // FNamePool build Dumper-7 has seen; the rest (stride/headerOffset/
-    // shift/blockOffsetBits) are specific to this compiled exe.
+    // FNamePool layout for this game build (confirmed live)
     const int chunksStart = 0x10;
     const int nameStride = 2;
     const int nameStringOffset = 2;
@@ -213,6 +152,7 @@ startup
     const int nameHeaderShift = 6;
     const int nameBlockOffsetBits = 16;
 
+    // FName index -> string (ported from Dumper-7)
     Func<Process, IntPtr, int, int, string> decodeFName = null;
     decodeFName = (p, poolBase, compIdx, depth) =>
     {
@@ -256,24 +196,7 @@ startup
     };
     vars.DecodeFName = decodeFName;
 
-    // Shared by onStart/onReset below -- resyncs the route pointer back to
-    // the top and re-baselines LastLevel to whatever CurrentLevel already
-    // is (not blanked to null) so a checkpoint already reached before the
-    // timer exists (e.g. a practice save loaded, then started manually
-    // while already standing there) doesn't read as a "new" zone and fire
-    // an instant split.
-    //
-    // This baseline is allowed to be stale -- e.g. wherever a previous
-    // attempt this session last saved, still sitting in CurrentLevel simply
-    // because nothing has been saved for *this* attempt yet -- without
-    // causing problems either way: split()'s vars.SaveJustChanged gate
-    // already refuses to fire unless a real disk write was just observed,
-    // so a stale, unchanged CurrentLevel can never trigger an instant
-    // spurious split; and a real New Game always writes Tutorial and then
-    // the starting TickTown checkpoint before any later zone, each a
-    // distinct value that clears the stale baseline on its own, so a later
-    // genuine revisit of whatever zone the baseline happened to match is
-    // never swallowed either.
+    // Route back to the top; current save zone becomes the baseline
     vars.ResyncRoute = (Action)(() =>
     {
         vars.Pointer = 0;
@@ -298,24 +221,14 @@ init
 
     var scanner = new SignatureScanner(game, modules.First().BaseAddress, modules.First().ModuleMemorySize);
 
-    // GWorld: confirmed live this session that only this variant (of
-    // several tried) matches Duskfade's compiled code -- resolves to the
-    // address of the GWorld global itself (a pointer-to-UWorld*, still
-    // needs one dereference every read since the *value* changes whenever
-    // a new level loads). This pattern carries leading context bytes
-    // ("E8 ?? ?? ?? FF ?? 8B ?? 78") before the actual "48 89 05" mov
-    // instruction, which sits at pattern position 9 -- so the SigScanTarget
-    // offset (12) points at the disp32 right after it, not at the pattern
-    // start.
+    // GWorld (pattern from GSpots; disp32 at offset 12)
     var gWorldTarget = new SigScanTarget(12, "E8 ?? ?? ?? FF ?? 8B ?? 78 48 89 05 ?? ?? ?? ?? ?? 8B ?? 78")
     {
         OnFound = (p, s, addr) => addr + 0x4 + p.ReadValue<int>(addr)
     };
     try { vars.GWorldAddr = scanner.Scan(gWorldTarget); } catch { vars.GWorldAddr = IntPtr.Zero; }
 
-    // GNames (FNamePool): resolves directly to the pool object's own
-    // address -- no extra dereference (confirmed live: decoding UWorld's
-    // own name through this address correctly produced "MenuInicio").
+    // GNames (FNamePool)
     var gNamesTarget = new SigScanTarget(3, "48 8D 0D ?? ?? ?? ?? E8 ?? ?? FE FF 4C 8B C0 C6 05 ?? ?? ?? ?? 01")
     {
         OnFound = (p, s, addr) => addr + 0x4 + p.ReadValue<int>(addr)
@@ -325,14 +238,9 @@ init
 
 update
 {
-    // Route resync (Pointer/LastLevel/CreditsSplitSent) lives in the
-    // dedicated onStart/onReset hooks below, not here -- see their comments.
-
-    // Reset every tick; only set back to true below if a save file was
-    // genuinely (re)written since the last poll -- see split()'s use of it.
     vars.SaveJustChanged = false;
 
-    // --- World name (menu/cutscene/level/credits detection) ---
+    // Live world (level) name
     vars.PreviousWorldName = vars.CurrentWorldName;
     if ((IntPtr)vars.GWorldAddr != IntPtr.Zero && (IntPtr)vars.NamePoolBase != IntPtr.Zero)
     {
@@ -346,9 +254,10 @@ update
                 if (name != null) vars.CurrentWorldName = name;
             }
         }
-        catch { /* transient read failure (e.g. level loading) -- keep last known name */ }
+        catch { /* mid-load: keep last name */ }
     }
 
+    // Save file changes
     try
     {
         string saveDir = (string)vars.SaveDir;
@@ -360,7 +269,7 @@ update
 
         if (!string.IsNullOrEmpty(slotFileName))
         {
-            // Pinned mode: only this exact file is ever watched.
+            // Pinned slot
             string pinnedPath = System.IO.Path.Combine(saveDir, slotFileName);
             if (!System.IO.File.Exists(pinnedPath)) return;
             long ticks = System.IO.File.GetLastWriteTimeUtc(pinnedPath).Ticks;
@@ -372,7 +281,7 @@ update
         }
         else
         {
-            // Auto-detect mode: react to whichever slot changed most recently.
+            // Auto-detect: most recently changed slot
             long changedTicks = -1;
             foreach (var path in System.IO.Directory.GetFiles(saveDir, "DFSlot_*.sav"))
             {
@@ -415,6 +324,7 @@ update
 
 split
 {
+    // Credits
     if (settings["autoend"] && (string)vars.CurrentWorldName == (string)vars.CreditsWorldName && !(bool)vars.CreditsSplitSent)
     {
         vars.CreditsSplitSent = true;
@@ -425,21 +335,7 @@ split
     int pointer = (int)vars.Pointer;
     var consumed = (HashSet<string>)vars.ConsumedKeys;
 
-    // Level-load fallback, for arrivals that never write a checkpoint save
-    // -- e.g. the wrong warp out of Guayota, which drops you at TickTown's
-    // default spawn with no save at all (confirmed live 2026-09-22: world
-    // went Guayota_GB -> TickTown, last save still said Guayota_GB). Every
-    // route zone is its own map named exactly like its level_key (case
-    // aside: map "MiniBoss4" vs save "Miniboss4"), so a world change onto
-    // the very next expected route entry counts as reaching it. Only the
-    // next entry, never a forward scan, so this can't jump the route.
-    //
-    // On a normal exit the game writes the destination's save a few
-    // seconds *before* the load starts, so the save path below has already
-    // split and advanced the pointer by the time the world changes -- the
-    // world then no longer matches route[pointer] and nothing doubles up.
-    // Setting LastLevel here likewise makes a later save of the same zone
-    // (if one comes) read as already handled.
+    // Level load onto the next route zone with no save (wrong warps)
     string world = (string)vars.CurrentWorldName;
     if (settings["worldfallback"] && world != null && world != (string)vars.PreviousWorldName
         && pointer < route.Length
@@ -452,34 +348,15 @@ split
         return settings[route[pointer][2]] && settings[route[pointer][3]];
     }
 
-    // Nothing was actually (re)written to disk this tick -- CurrentLevel,
-    // whatever it currently holds, is not new information, so there is
-    // nothing here to react to. This is what stops a stale leftover value
-    // (e.g. wherever a previous attempt this session last saved, still
-    // sitting in CurrentLevel because nothing has been saved for *this*
-    // attempt yet) from ever being mistaken for a genuine transition --
-    // regardless of what LastLevel was baselined to at run-start.
+    // Only react to a real save write
     if (!(bool)vars.SaveJustChanged) return false;
 
     string level = (string)vars.CurrentLevel;
     if (level == null || level == (string)vars.LastLevel) return false;
     vars.LastLevel = level;
 
-    // Scan forward from the current pointer rather than requiring an exact
-    // adjacent match -- if the real next zone reached is further down the
-    // list (a zone in between was skipped entirely, or its checkbox is
-    // simply off), jump the pointer there instead of getting stuck.
-    //
-    // Several zone keys recur later in the route (TickTown, revisited after
-    // every boss). Without a guard, retreating to an already-passed
-    // occurrence of one of those keys (e.g. backing out of Forest1 into
-    // TickTown) would forward-match against a much later occurrence of the
-    // same string instead of being recognized as a step backward -- firing
-    // one bogus split and silently desyncing the pointer past every real
-    // zone in between. So a same-key match only counts as genuine forward
-    // progress when it's the very next unconsumed entry (i == pointer); any
-    // later occurrence of a key already consumed earlier is a revisit, not
-    // progress, and is ignored.
+    // Scan forward (skipped zones are passed over);
+    // a later repeat of an already-reached zone is a revisit, not progress
     for (int i = pointer; i < route.Length; i++)
     {
         if (level != route[i][0]) continue;
@@ -496,21 +373,13 @@ split
 
 start
 {
+    // Leaving the main menu
     if (!settings["autostart"]) return false;
     return (string)vars.PreviousWorldName == (string)vars.MenuWorldName
         && vars.CurrentWorldName != null
         && (string)vars.CurrentWorldName != (string)vars.MenuWorldName;
 }
 
-// Fires exactly once, right as the timer actually enters Running --
-// whether that came from start() above or a manual start hotkey. Resyncs
-// the route pointer here rather than polling timer.CurrentPhase inside
-// update() every tick: it's the idiomatic LiveSplit ASL hook for this
-// (confirmed against a real published UE autosplitter, LiterallyMetaphorical
-// /Livesplit.EnGarde, which uses the equivalent onReset for its own
-// per-run state), and it also means a Pause (CurrentPhase != Running but
-// not a real reset) can no longer accidentally clear the pointer the way
-// the old polling check did.
 onStart
 {
     ((Action)vars.ResyncRoute)();
@@ -518,32 +387,18 @@ onStart
 
 reset
 {
-    // reset only ever runs while the timer is actively Running, so a
-    // legitimate finish is never mistaken for this: the Creditos split
-    // already moves the timer to Ended phase before any later transition
-    // back to MenuInicio (post-credits, if the game does that) could occur.
-    // This only catches genuinely abandoning a run early -- dying and
-    // exiting to the main menu, quitting out mid-attempt, etc.
+    // Back to the main menu mid-run
     if (!settings["autoreset"]) return false;
     return (string)vars.CurrentWorldName == (string)vars.MenuWorldName
         && (string)vars.PreviousWorldName != (string)vars.MenuWorldName;
 }
 
-// Fires exactly once whenever the timer actually resets -- via reset()
-// above returning true, or a manual Reset (e.g. after Credits ends the
-// run and you reset back to NotRunning before the next New Game). Also
-// resyncs here rather than every idle tick: CurrentLevel itself is kept
-// fresh in update() regardless of phase, so by the time either this or
-// onStart fires, vars.CurrentLevel already reflects the live save --
-// nothing is lost by only baselining LastLevel at these two exact
-// moments instead of continuously while idle.
 onReset
 {
     ((Action)vars.ResyncRoute)();
 }
 
-
 isLoading
 {
- 	return current.loadscreen == 6;
+    return current.loadscreen == 6;
 }
