@@ -192,6 +192,7 @@ startup
     settings.Add("autostart", true, "Auto-start on New Game (difficulty confirm)");
     settings.Add("autoend", true, "Auto-split on Credits (true ending)");
     settings.Add("autoreset", true, "Auto-reset if you return to the menu mid-run");
+    settings.Add("worldfallback", true, "Also split on level load when no checkpoint save happens (wrong warps)");
 
     vars.MenuWorldName = "MenuInicio";
     vars.CreditsWorldName = "Creditos";
@@ -420,6 +421,37 @@ split
         return true;
     }
 
+    var route = (string[][])vars.Route;
+    int pointer = (int)vars.Pointer;
+    var consumed = (HashSet<string>)vars.ConsumedKeys;
+
+    // Level-load fallback, for arrivals that never write a checkpoint save
+    // -- e.g. the wrong warp out of Guayota, which drops you at TickTown's
+    // default spawn with no save at all (confirmed live 2026-09-22: world
+    // went Guayota_GB -> TickTown, last save still said Guayota_GB). Every
+    // route zone is its own map named exactly like its level_key (case
+    // aside: map "MiniBoss4" vs save "Miniboss4"), so a world change onto
+    // the very next expected route entry counts as reaching it. Only the
+    // next entry, never a forward scan, so this can't jump the route.
+    //
+    // On a normal exit the game writes the destination's save a few
+    // seconds *before* the load starts, so the save path below has already
+    // split and advanced the pointer by the time the world changes -- the
+    // world then no longer matches route[pointer] and nothing doubles up.
+    // Setting LastLevel here likewise makes a later save of the same zone
+    // (if one comes) read as already handled.
+    string world = (string)vars.CurrentWorldName;
+    if (settings["worldfallback"] && world != null && world != (string)vars.PreviousWorldName
+        && pointer < route.Length
+        && string.Equals(world, route[pointer][0], StringComparison.OrdinalIgnoreCase))
+    {
+        vars.Pointer = pointer + 1;
+        vars.LastLevel = route[pointer][0];
+        consumed.Add(route[pointer][0]);
+        if (route[pointer][2] == "__start__") return false;
+        return settings[route[pointer][2]] && settings[route[pointer][3]];
+    }
+
     // Nothing was actually (re)written to disk this tick -- CurrentLevel,
     // whatever it currently holds, is not new information, so there is
     // nothing here to react to. This is what stops a stale leftover value
@@ -432,10 +464,6 @@ split
     string level = (string)vars.CurrentLevel;
     if (level == null || level == (string)vars.LastLevel) return false;
     vars.LastLevel = level;
-
-    var route = (string[][])vars.Route;
-    int pointer = (int)vars.Pointer;
-    var consumed = (HashSet<string>)vars.ConsumedKeys;
 
     // Scan forward from the current pointer rather than requiring an exact
     // adjacent match -- if the real next zone reached is further down the
