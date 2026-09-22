@@ -45,6 +45,8 @@ The checkpoint list order is fixed (not sortable) — it reflects when each save
 
 Splits automatically as you progress through the any% route — every split is an individual checkbox in the component's settings (grouped by chapter), all on by default, so unchecking anything not in your route just skips it. Also starts the timer automatically the instant a real New Game begins (at difficulty-confirm, before any cutscenes), and ends the run automatically at the true credits — neither of those has a save-file event to hook, so this reads a couple of the game's own read-only memory values (never writes to the game) to catch them.
 
+**Load removal:** the script also pauses LiveSplit's **Game Time** during loading screens. To see load-removed time, right-click LiveSplit → Compare Against → **Game Time**. It reads a fixed memory address, so a game patch may break it until the script is updated.
+
 **Setup:**
 1. Download [`Duskfade.asl`](Duskfade.asl) from this repo.
 2. In LiveSplit: right-click → Edit Layout → **+** → Control → **Scriptable Auto Splitter**.
