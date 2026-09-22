@@ -143,6 +143,7 @@ startup
     vars.LastLevel = (string)null;
     vars.CurrentLevel = (string)null;
     vars.SaveJustChanged = false;
+    vars.ConsumedKeys = new HashSet<string>();
     vars.FileMtimes = new Dictionary<string, long>();
 
     vars.ExtractStrings = (Func<byte[], List<KeyValuePair<int, string>>>)((data) =>
@@ -276,6 +277,7 @@ startup
     {
         vars.Pointer = 0;
         vars.LastLevel = (string)vars.CurrentLevel;
+        vars.ConsumedKeys = new HashSet<string>();
         vars.CreditsSplitSent = false;
     });
 }
@@ -286,6 +288,7 @@ init
     vars.LastLevel = (string)null;
     vars.CreditsSplitSent = false;
     vars.SaveJustChanged = false;
+    vars.ConsumedKeys = new HashSet<string>();
     vars.CurrentWorldName = (string)null;
     vars.PreviousWorldName = (string)null;
 
@@ -432,21 +435,33 @@ split
 
     var route = (string[][])vars.Route;
     int pointer = (int)vars.Pointer;
+    var consumed = (HashSet<string>)vars.ConsumedKeys;
 
     // Scan forward from the current pointer rather than requiring an exact
     // adjacent match -- if the real next zone reached is further down the
     // list (a zone in between was skipped entirely, or its checkbox is
     // simply off), jump the pointer there instead of getting stuck.
+    //
+    // Several zone keys recur later in the route (TickTown, revisited after
+    // every boss). Without a guard, retreating to an already-passed
+    // occurrence of one of those keys (e.g. backing out of Forest1 into
+    // TickTown) would forward-match against a much later occurrence of the
+    // same string instead of being recognized as a step backward -- firing
+    // one bogus split and silently desyncing the pointer past every real
+    // zone in between. So a same-key match only counts as genuine forward
+    // progress when it's the very next unconsumed entry (i == pointer); any
+    // later occurrence of a key already consumed earlier is a revisit, not
+    // progress, and is ignored.
     for (int i = pointer; i < route.Length; i++)
     {
-        if (level == route[i][0])
-        {
-            vars.Pointer = i + 1;
-            string settingId = route[i][2];
-            if (settingId == "__start__") return false; // consumed, not a real split
-            string parentId = route[i][3];
-            return settings[settingId] && settings[parentId];
-        }
+        if (level != route[i][0]) continue;
+        if (i != pointer && consumed.Contains(level)) return false;
+        vars.Pointer = i + 1;
+        consumed.Add(level);
+        string settingId = route[i][2];
+        if (settingId == "__start__") return false; // consumed, not a real split
+        string parentId = route[i][3];
+        return settings[settingId] && settings[parentId];
     }
     return false;
 }
