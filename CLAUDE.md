@@ -6,3 +6,4 @@ This is an open-source repo on GitHub (`Zyrumi/duskfade-save-tools`) that other 
 - **Commit and push automatically** as work is completed — no need to ask before each push, that's pre-authorized for this repo.
 - **Never create a GitHub Release or version tag** without the user explicitly asking for one. Regular commits/pushes to `main` are fine on their own; cutting a release is a separate, deliberate step.
 - Bump `CURRENT_VERSION` in `updater.py` only when actually cutting a release, to match the release tag.
+- The LiveSplit autosplitters moved to `Zyrumi/duskfade-autosplitters` (local: `G:\Claude\duskfade-autosplitters`). Splitter changes go there, and Save Editor releases no longer attach `.asl` files.
