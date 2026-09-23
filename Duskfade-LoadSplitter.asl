@@ -70,7 +70,6 @@ startup
     }
 
     vars.MenuWorldName = "MenuInicio";
-    vars.IntroWorldName = "IntroCinematica";
     vars.CreditsWorldName = "Creditos";
     vars.GWorldAddr = IntPtr.Zero;
     vars.NamePoolBase = IntPtr.Zero;
@@ -131,12 +130,14 @@ startup
     };
     vars.DecodeFName = decodeFName;
 
-    // Current level becomes the baseline on start/reset
+    // Current level becomes the baseline on start/reset;
+    // mid-load (auto-start), the next level is the baseline
     vars.ResyncRun = (Action)(() =>
     {
         string world = (string)vars.CurrentWorldName;
-        vars.LastLevel = world != null && ((HashSet<string>)vars.KnownLevels).Contains(world) ? world : null;
-        vars.FromMenu = false;
+        bool known = world != null && ((HashSet<string>)vars.KnownLevels).Contains(world);
+        vars.LastLevel = known ? world : null;
+        vars.FromMenu = !known;
         vars.CreditsSplitSent = false;
     });
 }
@@ -188,10 +189,11 @@ update
 
 start
 {
-    // Menu -> intro cutscene only happens on New Game
+    // Leaving the main menu (same moment as Duskfade.asl)
     if (!settings["autostart"]) return false;
     return (string)vars.PreviousWorldName == (string)vars.MenuWorldName
-        && (string)vars.CurrentWorldName == (string)vars.IntroWorldName;
+        && vars.CurrentWorldName != null
+        && (string)vars.CurrentWorldName != (string)vars.MenuWorldName;
 }
 
 onStart
@@ -222,7 +224,7 @@ split
     // Unknown name (loading map, mid-load read)
     if (!((HashSet<string>)vars.KnownLevels).Contains(world)) return false;
 
-    // Continuing from the menu: new baseline, no split
+    // First level after the menu or run start: new baseline, no split
     if ((bool)vars.FromMenu)
     {
         vars.FromMenu = false;

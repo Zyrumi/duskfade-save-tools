@@ -48,7 +48,7 @@ Two scripts, pick the one for your category. Both only read the game's memory an
 | | Any% (`Duskfade.asl`) | Any category (`Duskfade-LoadSplitter.asl`) |
 |---|---|---|
 | For | The any% route | 100%, all achievements, anything else |
-| Starts | Leaving the main menu (New Game) | New Game only (Continue never starts it) |
+| Starts | Leaving the main menu (New Game) | Leaving the main menu (New Game), same moment as any% |
 | Splits | Each zone on the fixed any% route | Every arrival in a different level, revisits included |
 | Ends | Credits | Credits |
 | Resets | Returning to the main menu (on by default) | Off by default, so quitting to the menu doesn't end a long run |
